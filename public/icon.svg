@@ -1,1 +1,65 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128"><rect width="128" height="128" rx="30" fill="#6650c6"/><path d="M35 35h58v58H35z" fill="#9078ed" stroke="#fff1cf" stroke-width="9"/><g fill="#fff4dc" stroke="#483677" stroke-width="3"><circle cx="35" cy="35" r="9"/><circle cx="93" cy="35" r="9"/><circle cx="35" cy="93" r="9"/><circle cx="93" cy="93" r="9"/></g><path d="M52 64h24m-12-12v24" stroke="#fff4dc" stroke-width="7" stroke-linecap="round"/></svg>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128">
+  <title>Box Game</title>
+  <defs>
+    <radialGradient id="field" cx=".22" cy=".05" r="1.15">
+      <stop stop-color="#7965dc"/>
+      <stop offset=".49" stop-color="#5140b0"/>
+      <stop offset="1" stop-color="#30256b"/>
+    </radialGradient>
+    <linearGradient id="paper" x2=".78" y2="1">
+      <stop stop-color="#fffbee"/>
+      <stop offset="1" stop-color="#ffedcb"/>
+    </linearGradient>
+    <linearGradient id="violet" x2=".7" y2="1">
+      <stop stop-color="#ab8aff"/>
+      <stop offset="1" stop-color="#7d59e5"/>
+    </linearGradient>
+    <linearGradient id="coral" x2=".7" y2="1">
+      <stop stop-color="#ff9d66"/>
+      <stop offset="1" stop-color="#fa704d"/>
+    </linearGradient>
+    <linearGradient id="rim" x2="1" y2=".35">
+      <stop stop-color="#d5bbe3"/>
+      <stop offset=".55" stop-color="#ab92cd"/>
+      <stop offset="1" stop-color="#8573ac"/>
+    </linearGradient>
+    <filter id="shadow" x="-.3" y="-.3" width="1.6" height="1.7">
+      <feGaussianBlur stdDeviation="3.1"/>
+    </filter>
+    <rect id="tile" width="64" height="64" rx="6"/>
+    <g id="peg">
+      <circle cy=".8" r="3.25" fill="#4a366d"/>
+      <circle cy="-.55" r="3.25" fill="#302849"/>
+      <path d="M-1.85-1.75a2.5 2.5 0 0 1 1.75-.84" fill="none"
+            stroke="#9684ac" stroke-width=".75" stroke-linecap="round"/>
+    </g>
+  </defs>
+  <rect id="background" width="128" height="128" rx="26" fill="url(#field)"/>
+  <g id="board">
+    <g transform="translate(0 9)" opacity=".55" filter="url(#shadow)">
+      <use href="#tile" transform="matrix(1.05 .39 -.53 .92 47.4 18)" fill="#1d144b"/>
+    </g>
+    <g transform="matrix(1.05 .39 -.53 .92 47.4 17)">
+      <use href="#tile" x="2.9" y="5.8" fill="#392a65"/>
+      <use href="#tile" x="2.3" y="4.6" fill="url(#rim)"/>
+      <use href="#tile" x="1.4" y="2.8" fill="url(#rim)"/>
+      <use href="#tile" fill="url(#paper)"/>
+      <rect x="8" y="8" width="24" height="24" fill="url(#violet)"/>
+      <rect x="32" y="32" width="24" height="24" fill="url(#coral)"/>
+      <g fill="none" stroke-width="2.5" stroke-linejoin="round">
+        <path d="M32 8h24v24M8 32v24h24" stroke="#cdbfd4"/>
+        <path d="M8 8h24v24H8z" stroke="#7052b5"/>
+        <path d="M32 32h24v24H32z" stroke="#cb563e"/>
+      </g>
+      <use href="#peg" x="8" y="8"/>
+      <use href="#peg" x="32" y="8"/>
+      <use href="#peg" x="56" y="8"/>
+      <use href="#peg" x="8" y="32"/>
+      <use href="#peg" x="32" y="32"/>
+      <use href="#peg" x="56" y="32"/>
+      <use href="#peg" x="8" y="56"/>
+      <use href="#peg" x="32" y="56"/>
+      <use href="#peg" x="56" y="56"/>
+    </g>
+  </g>
+</svg>
