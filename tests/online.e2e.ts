@@ -5,6 +5,7 @@ const qrDecoder = createRequire(import.meta.url).resolve("jsqr");
 
 async function configure(p: Page, tag: string) {
   await p.goto("./");
+  await p.getByRole("button", { name: "Maybe later" }).click();
   await p.getByRole("button", { name: "Online", exact: true }).click();
   await p.getByLabel("Your initials").fill(tag);
 }
@@ -63,6 +64,7 @@ test("QR and link pair two peers, enforce seats, reconnect, finish and rematch",
     expect(decoded).toBe(invite);
     await x.getByRole("button", { name: "Close", exact: true }).click();
     await y.goto(invite);
+    await y.getByRole("button", { name: "Maybe later" }).click();
     await expect(y.getByLabel("Room code")).toHaveValue(code);
     await y.getByLabel("Your initials").fill("BY");
     await y.getByRole("button", { name: "Join", exact: true }).click();

@@ -125,11 +125,11 @@ app.innerHTML =
   logo +
   '<span>Box Game<span class="period">.</span></span></div><nav><button class="plain help-button" data-action="help">' +
   icon("help") +
-  '<span>How to play</span></button><button class="round" id="sound" data-action="sound"></button></nav></header><section id="surface"></section><footer><div id="install-wrap" hidden><div class="install-copy"><b>Install Box Game</b><small>Play solo or local games offline.</small></div><button class="install" id="install" hidden>' +
+  '<span>How to play</span></button><button class="round" id="sound" data-action="sound"></button></nav></header><aside id="install-wrap" class="offer" aria-label="Install Box Game" hidden><div class="install-copy"><b>Install Box Game</b><small>Play solo or local games offline.</small></div><button class="install" id="install">' +
   icon("install") +
   ' Install game</button><button id="skip-install" class="round" aria-label="Dismiss install offer">' +
   icon("close") +
-  '</button></div><span id="notice" role="status"></span><button class="plain" id="update" hidden>Update game</button></footer>';
+  '</button></aside><section id="surface"></section><footer><span id="notice" role="status"></span><button class="plain" id="update" hidden>Update game</button></footer>';
 function soundUI() {
   const b = $("#sound");
   b.innerHTML = icon(prefs.sound ? "sound" : "mute");
@@ -137,9 +137,9 @@ function soundUI() {
   b.setAttribute("aria-pressed", String(prefs.sound));
 }
 soundUI();
-function modal(title: string, body: string) {
+function modal(title: string, body: string, className = "") {
   if (dialog.open) dialog.close();
-  dialog.className = "";
+  dialog.className = className;
   dialog.innerHTML = frame(title, body);
   dialog.showModal();
 }
@@ -153,34 +153,51 @@ dialog.addEventListener("close", () => {
 dialog.addEventListener("click", (e) => {
   if (e.target === dialog) close();
 });
+const installBanner = $("#install-wrap");
+const popupKey = "box-game.install-popup-shown";
+const bannerKey = "box-game.install-offered";
+let popupShown = false;
+function collapseInstallBanner() {
+  installBanner.classList.remove("offer");
+  $("footer").prepend(installBanner);
+}
+try {
+  popupShown = sessionStorage.getItem(popupKey) === "1";
+  if (sessionStorage.getItem(bannerKey) === "1") collapseInstallBanner();
+} catch {}
+function offerInstall() {
+  if (popupShown || installBanner.hidden || dialog.open) return;
+  modal(
+    "Install Box Game",
+    '<p>Add Box Game to your home screen to play solo or with someone beside you, even offline.</p><div class="install-actions"><button class="primary" data-action="install" autofocus>' +
+      icon("install") +
+      ' Install game</button><button class="plain" data-action="close">Maybe later</button></div>',
+    "install-dialog",
+  );
+  popupShown = true;
+  try {
+    sessionStorage.setItem(popupKey, "1");
+  } catch {}
+}
+dialog.addEventListener("close", offerInstall);
 const installFlow = setupInstall(
   $<HTMLButtonElement>("#install"),
-  () => modal("Install Box Game", installInstructions()),
+  () => modal("Install Box Game", installInstructions(), "install-dialog"),
   notify,
   () => $<HTMLButtonElement>(".help-button").focus(),
+  (installed) => {
+    installBanner.hidden = installed;
+    if (installed && dialog.classList.contains("install-dialog")) close();
+    if (!installed) offerInstall();
+  },
 );
-let dismissed = false;
-try {
-  dismissed = sessionStorage.getItem("box-game.install-offered") === "1";
-} catch {}
-function reflectInstall() {
-  const box = $("#install-wrap");
-  box.hidden = installFlow.isInstalled();
-  box.classList.toggle("offer", !dismissed);
-}
 $("#skip-install").onclick = () => {
-  dismissed = true;
+  collapseInstallBanner();
   try {
-    sessionStorage.setItem("box-game.install-offered", "1");
+    sessionStorage.setItem(bannerKey, "1");
   } catch {}
-  reflectInstall();
   $("#install").focus();
 };
-new MutationObserver(reflectInstall).observe($("#install"), {
-  attributes: true,
-  attributeFilter: ["hidden"],
-});
-void installFlow.ready.then(reflectInstall);
 const updateSW = registerSW({
   onNeedRefresh() {
     $("#update").hidden = false;
@@ -754,6 +771,10 @@ document.addEventListener("click", async (e) => {
       return;
     }
     switch (action) {
+      case "install":
+        close();
+        await installFlow.request();
+        break;
       case "help":
         modal(
           "How to play",

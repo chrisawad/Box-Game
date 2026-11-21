@@ -1,6 +1,7 @@
 import { test, expect } from "@playwright/test";
 test("local game, double scoring, reload and rematch", async ({ page }) => {
   await page.goto("./");
+  await page.getByRole("button", { name: "Maybe later" }).click();
   await page.getByRole("button", { name: "Local", exact: true }).click();
   await page.getByLabel("Player 1 initials").fill("AB");
   await page.getByLabel("Player 2 initials").fill("CD");
@@ -40,9 +41,8 @@ test("computer responds, local match resumes offline, and installation respects 
   context,
 }) => {
   await page.goto("./");
-  await expect(
-    page.getByRole("button", { name: "Install game" }),
-  ).toBeVisible();
+  const offer = page.getByRole("dialog", { name: "Install Box Game" });
+  await expect(offer).toBeVisible();
   await page.evaluate(() => {
     Object.defineProperty(navigator, "install", {
       configurable: true,
@@ -51,7 +51,8 @@ test("computer responds, local match resumes offline, and installation respects 
       },
     });
   });
-  await page.getByRole("button", { name: "Install game" }).click();
+  await offer.getByRole("button", { name: "Install game" }).click();
+  await expect(offer).toBeHidden();
   await expect(page.getByRole("button", { name: "Install game" })).toBeHidden();
   await expect(page.locator("html")).toHaveAttribute(
     "data-install-requested",
@@ -73,6 +74,7 @@ test("computer responds, local match resumes offline, and installation respects 
 });
 test("install guidance, help and a rectangular game", async ({ page }) => {
   await page.goto("./");
+  await page.getByRole("button", { name: "Maybe later" }).click();
   await page.getByRole("button", { name: "How to play" }).click();
   await expect(page.getByRole("dialog")).toContainText("fourth side");
   await page.getByRole("button", { name: "Got it" }).click();

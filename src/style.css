@@ -546,10 +546,14 @@ footer {
   border-top: 1px solid #d3cde4;
   min-height: 72px;
   gap: 12px;
+  flex-wrap: wrap;
   justify-content: space-between;
   padding: 10px 0;
   color: var(--muted);
   font-size: 0.875rem;
+}
+footer:has(#notice:empty):has(#update[hidden]):not(:has(aside:not([hidden]))) {
+  display: none;
 }
 footer .install {
   background: transparent;
@@ -809,9 +813,14 @@ dialog {
   background: #fffdfa;
   color: #292238;
 }
+dialog:modal {
+  overscroll-behavior: contain;
+}
 dialog::backdrop {
   background: #241b3e65;
   backdrop-filter: blur(3px);
+  overflow: hidden;
+  overscroll-behavior: contain;
 }
 .dialog-head {
   justify-content: space-between;
@@ -1016,6 +1025,16 @@ dialog p + p {
   align-items: center;
   gap: 12px;
 }
+.install-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 22px;
+}
+.install-actions .primary {
+  flex: 1 0 9rem;
+  width: auto;
+}
 .install-copy,
 #skip-install {
   display: none;
@@ -1023,6 +1042,7 @@ dialog p + p {
 .offer .install-copy {
   display: grid;
   gap: 1px;
+  margin-inline-end: auto;
 }
 .install-copy b {
   color: #44345c;
@@ -1030,6 +1050,7 @@ dialog p + p {
 }
 .install-copy small {
   font-size: 0.79rem;
+  color: var(--muted);
 }
 .offer #skip-install {
   display: grid;
@@ -1047,10 +1068,11 @@ dialog p + p {
   width: 16px;
 }
 .offer {
-  padding: 4px 0;
-}
-footer {
-  flex-wrap: wrap;
+  margin-top: 12px;
+  padding: 8px 12px 8px 16px;
+  border-radius: 14px;
+  border: 1px solid #d4c8ee;
+  background: #ece6f8;
 }
 @media (max-width: 450px) {
   header nav {
@@ -1067,10 +1089,9 @@ footer {
     width: 40px;
     min-height: 40px;
   }
-  .offer {
-    gap: 6px !important;
-    justify-content: space-between;
-    width: 100%;
+  #install-wrap.offer {
+    gap: 6px;
+    padding: 7px 5px 7px 10px;
   }
   .install-copy small {
     max-width: 15em;

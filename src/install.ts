@@ -14,32 +14,47 @@ export function setupInstall(
   help: () => void,
   status: (message: string) => void,
   focusAfterInstall: () => void,
-  onInstalled?: () => void,
+  onChange: (installed: boolean) => void,
 ) {
   const nav = navigator as InstallNavigator;
   const appMode = matchMedia(
     "(display-mode: standalone), (display-mode: minimal-ui), (display-mode: window-controls-overlay)",
   );
+  const storageKey = "box-game.installed";
+  let remembered = false;
+  try {
+    remembered = localStorage.getItem(storageKey) === "1";
+  } catch {}
+  function remember(value: boolean) {
+    remembered = value;
+    try {
+      if (value) localStorage.setItem(storageKey, "1");
+      else localStorage.removeItem(storageKey);
+    } catch {}
+  }
   let prompt: InstallPrompt | undefined,
-    installedHere = false,
-    relatedInstalled = false;
+    relatedInstalled = false,
+    revision = 0,
+    checked = false;
   const isInstalled = () =>
     appMode.matches ||
     nav.standalone === true ||
-    installedHere ||
-    relatedInstalled;
+    relatedInstalled ||
+    remembered;
   const reflect = () => {
+    if (!checked) return;
     const installed = isInstalled();
     if (installed && document.activeElement === button) focusAfterInstall();
-    button.hidden = installed;
-    if (installed) onInstalled?.();
+    onChange(installed);
   };
   const checkRelated = async () => {
     if (!isSecureContext || !nav.getInstalledRelatedApps) return;
+    const check = ++revision;
     try {
       const id = new URL("./", document.baseURI).href;
       const manifest = new URL("manifest.webmanifest", id).href;
       const apps = await nav.getInstalledRelatedApps();
+      if (check !== revision) return;
       relatedInstalled = apps.some(
         (app) =>
           app.platform === "webapp" && (app.id === id || app.url === manifest),
@@ -49,13 +64,24 @@ export function setupInstall(
       /* Unavailable detection leaves a useful install/help action. */
     }
   };
-  appMode.addEventListener("change", reflect);
-  window.addEventListener("focus", () => {
+  function displayChanged() {
+    if (appMode.matches || nav.standalone) remember(true);
     reflect();
-    void checkRelated();
+  }
+  appMode.addEventListener("change", displayChanged);
+  window.addEventListener("storage", (event) => {
+    if (event.key !== storageKey) return;
+    revision++;
+    remembered = event.newValue === "1";
+    relatedInstalled = false;
+    reflect();
+  });
+  window.addEventListener("focus", () => {
+    if (checked) void checkRelated();
   });
   window.addEventListener("appinstalled", () => {
-    installedHere = true;
+    revision++;
+    remember(true);
     prompt = undefined;
     reflect();
   });
@@ -63,12 +89,13 @@ export function setupInstall(
     event.preventDefault();
     prompt = event as InstallPrompt;
     // Fresh browser eligibility also covers uninstalling during this session.
-    installedHere = false;
+    revision++;
     relatedInstalled = false;
+    if (remembered) remember(false);
     reflect();
   });
   const request = async () => {
-    if (button.getAttribute("aria-disabled") === "true") return;
+    if (isInstalled() || button.getAttribute("aria-disabled") === "true") return;
     // The always-visible game action has a real help flow when prompting is
     // unavailable. Call supported install APIs directly in this user gesture.
     if (!isSecureContext || (!nav.install && !prompt)) {
@@ -79,16 +106,14 @@ export function setupInstall(
     try {
       if (nav.install) {
         await nav.install();
-        installedHere = true;
+        remember(true);
       } else if (prompt) {
         const pending = prompt;
         prompt = undefined;
         await pending.prompt();
-        installedHere =
-          (await pending.userChoice).outcome === "accepted" || installedHere;
+        if ((await pending.userChoice).outcome === "accepted") remember(true);
+        else status("Installation canceled. You can install later.");
       }
-      if (!installedHere)
-        status("Installation canceled. You can install later.");
     } catch {
       status(
         "Installation did not complete. Try again or use your browser’s install menu.",
@@ -99,9 +124,12 @@ export function setupInstall(
     }
   };
   button.addEventListener("click", request);
-  reflect();
-  const ready = checkRelated();
-  return { ready, isInstalled, request };
+  displayChanged();
+  void checkRelated().then(() => {
+    checked = true;
+    reflect();
+  });
+  return { request };
 }
 
 export function installInstructions() {
