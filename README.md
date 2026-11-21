@@ -24,4 +24,6 @@ pnpm test:e2e
 
 The game uses Vite, TypeScript, Three.js, Tailwind CSS, Workbox, and canvas-confetti. Fonts and install icons ship with the app. GitHub Actions tests the game and publishes the production build to GitHub Pages on pushes to main.
 
+For a self-hosted release, set `PWA_ORIGIN` to your public origin (for example, `https://games.example.com`) when running `pnpm build` so desktop browsers can recognize an existing installation. The Pages workflow supplies this automatically.
+
 For isolated multiplayer tests, build with `VITE_PEER_HOST=127.0.0.1`, `VITE_PEER_PORT=9108`, and `VITE_PEER_SECURE=false` using `pnpm exec vite build --outDir .qa/peer-ci`. Then run `pnpm test:e2e` with `PEER_CI=1`. Playwright starts its own PeerServer. To smoke-test the deployed private room flow, set `PLAY_URL` to the published Pages URL and `ONLINE_SMOKE=1`, and run `pnpm exec playwright test tests/online.e2e.ts --project=desktop`.

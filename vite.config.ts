@@ -2,6 +2,13 @@ import { defineConfig } from "vite";
 import tailwindcss from "@tailwindcss/vite";
 import { VitePWA } from "vite-plugin-pwa";
 
+// The original "./" manifest ID resolves against the origin, including on Pages.
+// Desktop Chromium requires that same ID as an absolute URL for the lookup.
+const manifestId = "./";
+const relatedId = process.env.PWA_ORIGIN
+  ? new URL(manifestId, new URL(process.env.PWA_ORIGIN).origin).href
+  : undefined;
+
 export default defineConfig({
   base: process.env.BASE_PATH || "./",
   plugins: [
@@ -10,7 +17,7 @@ export default defineConfig({
       registerType: "prompt",
       includeAssets: ["icon.svg", "icons/*.png"],
       manifest: {
-        id: "./",
+        id: manifestId,
         name: "Box Game — Dots and Boxes",
         short_name: "Box Game",
         description: "Connect the dots and capture the most boxes.",
@@ -18,7 +25,7 @@ export default defineConfig({
         scope: "./",
         display: "standalone",
         related_applications: [
-          { platform: "webapp", url: "./manifest.webmanifest", id: "./" },
+          { platform: "webapp", url: "./manifest.webmanifest", id: relatedId },
         ],
         orientation: "any",
         theme_color: "#e9e7fb",

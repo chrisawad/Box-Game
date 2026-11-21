@@ -34,6 +34,7 @@ jobs:
       - run: pnpm build
         env:
           BASE_PATH: ${{ steps.pages.outputs.base_path }}/
+          PWA_ORIGIN: ${{ steps.pages.outputs.origin }}
       - run: pnpm exec playwright install --with-deps chromium
       - name: Build isolated multiplayer test client
         run: pnpm exec vite build --outDir .qa/peer-ci

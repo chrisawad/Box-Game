@@ -76,7 +76,7 @@ test("waits for the browser to identify an already-installed copy", async ({ pag
     Object.defineProperty(navigator, "getInstalledRelatedApps", {
       value: () => new Promise((resolve) => {
         window.addEventListener("finish-install-check", () => {
-          resolve([{ platform: "webapp", id: new URL("./", location.href).href }]);
+          resolve([{ platform: "webapp", id: new URL("/", location.href).href }]);
         }, { once: true });
       }),
     });

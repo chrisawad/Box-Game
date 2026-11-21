@@ -51,13 +51,14 @@ export function setupInstall(
     if (!isSecureContext || !nav.getInstalledRelatedApps) return;
     const check = ++revision;
     try {
-      const id = new URL("./", document.baseURI).href;
-      const manifest = new URL("manifest.webmanifest", id).href;
+      const id = new URL("/", location.href).href;
+      const manifest = new URL("manifest.webmanifest", document.baseURI).href;
       const apps = await nav.getInstalledRelatedApps();
       if (check !== revision) return;
       relatedInstalled = apps.some(
         (app) =>
-          app.platform === "webapp" && (app.id === id || app.url === manifest),
+          app.platform === "webapp" &&
+          (app.url ? app.url === manifest : app.id === id),
       );
       reflect();
     } catch {
