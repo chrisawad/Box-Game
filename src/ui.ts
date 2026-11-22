@@ -11,6 +11,9 @@ const paths: Record<string, string> = {
   help: '<circle cx="12" cy="12" r="9"/><path d="M9.5 9a2.6 2.6 0 1 1 4 2.4c-1.5.8-1.5 1.6-1.5 2.4m0 2.4h.01"/>',
   install:
     '<path d="M12 3v11m-4-4 4 4 4-4M4 14v4a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-4"/>',
+  share:
+    '<circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><path d="m8.6 10.5 6.8-4m-6.8 7 6.8 4"/>',
+  link: '<path d="M10 13a4 4 0 0 0 5.7 0l3.1-3.1a4 4 0 0 0-5.7-5.7l-1.7 1.7M14 11a4 4 0 0 0-5.7 0l-3.1 3.1a4 4 0 0 0 5.7 5.7l1.7-1.7"/>',
   start:
     '<path fill="currentColor" stroke="none" d="M6 4.5c0-1 1.1-1.6 1.9-1l13 8c.8.4.8 1.5 0 2l-13 8c-.8.6-1.9 0-1.9-1z"/>',
   grid: '<rect x="4" y="4" width="16" height="16" rx="3"/><path d="M12 4v16M4 12h16"/>',

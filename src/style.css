@@ -168,6 +168,14 @@ header nav {
 .help-button:hover {
   background: var(--raised);
 }
+#update {
+  color: var(--page);
+  background: var(--purple);
+  border-color: var(--purple);
+}
+#update:hover {
+  background: #d6c2fa;
+}
 #surface {
   margin: auto 0;
   padding: 34px 0;
@@ -311,8 +319,7 @@ header nav {
   background: #9269d6;
 }
 #settings h2,
-.match-meta h1,
-.waiting h1 {
+.match-meta h1 {
   font-size: clamp(2rem, 3.3vw, 2.8rem);
   line-height: 1.06;
   letter-spacing: -0.065em;
@@ -538,17 +545,15 @@ header nav {
   width: 100%;
   margin: 10px 0 0;
 }
-.share-tools {
-  display: flex;
-  gap: 8px;
-}
-.qr {
+.share-url {
   display: block;
-  width: min(270px, 100%);
-  margin: auto;
-}
-.qr-caption {
-  text-align: center;
+  width: 100%;
+  padding: 10px 12px;
+  margin: 16px 0;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--field);
+  color: var(--text);
 }
 .room-setup {
   max-width: 540px;
@@ -656,7 +661,7 @@ footer {
   color: var(--muted);
   font-size: 0.875rem;
 }
-footer:has(#notice:empty):has(#update[hidden]):not(:has(aside:not([hidden]))) {
+footer:has(#notice:empty):not(:has(aside:not([hidden]))) {
   display: none;
 }
 footer .install {
@@ -857,19 +862,36 @@ footer .install {
   font-weight: 650;
   color: var(--muted);
 }
-.waiting {
-  margin: auto;
-  text-align: center;
-  max-width: 460px;
+.room-lobby {
+  max-width: 540px;
+  margin-inline: auto;
 }
-.waiting .kicker,
-.waiting .plain {
+.room-lobby h1 {
+  margin: 10px 0 20px;
+  font-size: clamp(2.15rem, 5vw, 3rem);
+  font-weight: 800;
+  letter-spacing: -.06em;
+  line-height: 1.08;
+}
+.waiting { text-align: center; }
+.waiting .room-code-label { margin: 18px 0 0; }
+.invite-qr {
+  display: block;
+  max-width: 100%;
+  width: 192px !important;
+  height: auto !important;
+  margin: 18px auto;
+  border-radius: 8px;
+  image-rendering: pixelated;
+}
+.invite-actions {
+  display: flex;
   justify-content: center;
-  margin: auto;
+  flex-wrap: wrap;
+  gap: 8px;
 }
-.waiting h1 {
-  margin: 10px 0;
-}
+.invite-actions .plain { padding-inline: 12px; }
+#invite-feedback:not(:empty) { margin-top: 12px; }
 .waiting p,
 dialog p {
   color: var(--muted);
@@ -895,9 +917,9 @@ dialog p {
   font-size: 2.2rem;
   letter-spacing: 0.15em;
   display: block;
-  margin: 20px auto;
+  margin: 0 auto;
+  color: var(--purple);
 }
-.waiting .plain,
 .result-dialog .plain {
   margin: 10px auto 0;
   background: none;
@@ -1103,13 +1125,13 @@ dialog p + p {
   align-items: center;
   gap: 12px;
 }
-.install-actions {
+.dialog-actions {
   display: flex;
   flex-wrap: wrap;
   gap: 10px;
   margin-top: 22px;
 }
-.install-actions .primary {
+.dialog-actions .primary {
   flex: 1 0 9rem;
   width: auto;
 }
@@ -1152,13 +1174,22 @@ dialog p + p {
   border: 1px solid #4b3b63;
   background: #262137;
 }
+@media (max-width: 600px) {
+  header nav { gap: 3px; }
+  .help-button span,
+  header:has(#update:not([hidden])) .share-button span {
+    display: none;
+  }
+  header .help-button,
+  header:has(#update:not([hidden])) .share-button {
+    width: 40px;
+    padding: 0;
+  }
+}
 @media (max-width: 450px) {
   .room-options label span {
     padding-inline: 3px;
     font-size: .85rem;
-  }
-  header nav {
-    gap: 2px;
   }
   .brand {
     font-size: 1.33rem;
@@ -1184,6 +1215,11 @@ dialog p + p {
   }
 }
 @media (max-width: 370px) {
+  header {
+    flex-wrap: wrap;
+  }
+  .share-button span { display: none; }
+  header .share-button { width: 40px; padding: 0; }
   .showcase {
     height: 145px;
   }

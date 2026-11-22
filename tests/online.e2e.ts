@@ -93,9 +93,12 @@ test("QR and link pair two peers, enforce seats, reconnect, finish and rematch",
     "Run this with a signaling server.",
   );
   test.setTimeout(180000);
-  const host = await browser.newContext({
-    baseURL,
-    permissions: ["clipboard-read", "clipboard-write"],
+  const host = await browser.newContext({ baseURL, permissions: ["clipboard-read", "clipboard-write"] });
+  await host.addInitScript(() => {
+    Object.defineProperty(navigator, "share", {
+      configurable: true,
+      value: async (data: ShareData) => { sessionStorage.setItem("test-share", JSON.stringify(data)); },
+    });
   });
   const guest = await browser.newContext({
     baseURL,
@@ -114,20 +117,26 @@ test("QR and link pair two peers, enforce seats, reconnect, finish and rematch",
       timeout: 25000,
     });
     const code = await x.locator(".room-code").innerText();
-    await x.getByRole("button", { name: "Copy invite link" }).click();
-    const invite = await x.evaluate(() => navigator.clipboard.readText());
+    await expect(x.getByRole("button", { name: /copy.*code/i })).toHaveCount(0);
+    const img = x.getByRole("img", { name: "QR code for room " + code });
+    await expect(img).toBeVisible();
+    await x.getByRole("button", { name: "Share invite", exact: true }).click();
+    const { url: invite, text } = await x.evaluate(() => JSON.parse(sessionStorage.getItem("test-share")!));
+    expect(text).toContain(code);
     expect(new URL(invite).searchParams.get("room")).toBe(code);
     expect(new URL(invite).origin).toBe(new URL(baseURL!).origin);
-    await x.getByRole("button", { name: "Show QR code" }).click();
-    const img = x.getByRole("img", { name: "QR code for room " + code });
+    await x.getByRole("button", { name: "Copy link", exact: true }).click();
+    await expect(x.locator("#invite-feedback")).toHaveText("Invite link copied.");
+    expect(await x.evaluate(() => navigator.clipboard.readText())).toBe(invite);
+    await x.evaluate(() => Object.defineProperty(navigator, "share", { value: undefined }));
+    await x.getByRole("button", { name: "Share invite", exact: true }).click();
+    const fallback = x.getByRole("dialog", { name: "Share invite" });
+    await expect(fallback.getByLabel("Send this link to a friend")).toHaveValue(invite);
+    await expect(fallback.getByRole("link", { name: "Share by email" })).toHaveAttribute("href", /mailto:/);
+    await fallback.getByRole("button", { name: "Close" }).click();
     await x.addScriptTag({ path: qrDecoder });
-    const decoded = await img.evaluate(async (element: HTMLImageElement) => {
-      await element.decode();
-      const c = document.createElement("canvas");
-      c.width = element.naturalWidth;
-      c.height = element.naturalHeight;
+    const decoded = await img.evaluate((c: HTMLCanvasElement) => {
       const ctx = c.getContext("2d")!;
-      ctx.drawImage(element, 0, 0);
       const decoder = (window as unknown as { jsQR: typeof jsQR }).jsQR;
       return decoder(
         ctx.getImageData(0, 0, c.width, c.height).data,
@@ -136,7 +145,6 @@ test("QR and link pair two peers, enforce seats, reconnect, finish and rematch",
       )?.data;
     });
     expect(decoded).toBe(invite);
-    await x.getByRole("button", { name: "Close", exact: true }).click();
     await y.goto(invite);
     await expect(y.getByRole("radio", { name: "Join a friend" })).toBeChecked();
     await expect(y.getByRole("dialog")).toBeHidden();

@@ -128,13 +128,16 @@ function note(capture: boolean) {
 }
 app.innerHTML =
   '<header><div class="brand"><img src="./icons/board-192.png" width="40" height="40" alt="">' +
-  '<span>Box Game<span class="period">.</span></span></div><nav><button class="plain help-button" data-action="help">' +
+  '<span>Box Game<span class="period">.</span></span></div><nav><button class="round" id="update" aria-label="Game update available" title="Game update available" aria-haspopup="dialog" aria-controls="dialog" hidden>' +
+  icon("install") +
+  '</button><button class="plain share-button" data-action="share" aria-label="Share" title="Share">' +
+  icon("share") + '<span>Share</span></button><button class="plain help-button" data-action="help" aria-label="How to play" title="How to play">' +
   icon("help") +
   '<span>How to play</span></button><button class="round" id="sound" data-action="sound"></button></nav></header><aside id="install-wrap" class="offer" aria-label="Install Box Game" hidden><div class="install-copy"><b>Install Box Game</b><small>Play solo or local games offline.</small></div><button class="install" id="install">' +
   icon("install") +
   ' Install game</button><button id="skip-install" class="round" aria-label="Dismiss install offer">' +
   icon("close") +
-  '</button></aside><section id="surface"></section><footer><span id="notice" role="status"></span><button class="plain" id="update" hidden>Update game</button></footer>';
+  '</button></aside><section id="surface"></section><footer><span id="notice" role="status"></span></footer>';
 function soundUI() {
   const b = $("#sound");
   b.innerHTML = icon(prefs.sound ? "sound" : "mute");
@@ -159,23 +162,42 @@ dialog.addEventListener("click", (e) => {
   if (e.target === dialog) close();
 });
 const installBanner = $("#install-wrap");
+const updateButton = $<HTMLButtonElement>("#update");
 const popupKey = "box-game.install-popup-shown";
 const bannerKey = "box-game.install-offered";
+const updateKey = "box-game.update-offered";
 let popupShown = false;
+let updateShown = false;
 function collapseInstallBanner() {
   installBanner.classList.remove("offer");
   $("footer").prepend(installBanner);
 }
 try {
   popupShown = sessionStorage.getItem(popupKey) === "1";
+  updateShown = sessionStorage.getItem(updateKey) === import.meta.url;
   if (!inviteVisit && sessionStorage.getItem(bannerKey) === "1") collapseInstallBanner();
 } catch {}
 if (inviteVisit) collapseInstallBanner();
-function offerInstall() {
+function showUpdate() {
+  modal(
+    "Game update ready",
+    '<p>A new version of Box Game is ready. Updating will reload the game.</p><div class="dialog-actions"><button class="primary" data-action="apply-update">' +
+      icon("install") + ' Update now</button><button class="plain" data-action="close" autofocus>Later</button></div>',
+  );
+  updateShown = true;
+  try {
+    sessionStorage.setItem(updateKey, import.meta.url);
+  } catch {}
+}
+function offerPendingPrompt() {
+  if (!updateButton.hidden) {
+    if (!updateShown && !dialog.open) showUpdate();
+    return;
+  }
   if (inviteVisit || popupShown || installBanner.hidden || dialog.open) return;
   modal(
     "Install Box Game",
-    '<p>Add Box Game to your home screen to play solo or with someone beside you, even offline.</p><div class="install-actions"><button class="primary" data-action="install" autofocus>' +
+    '<p>Add Box Game to your home screen to play solo or with someone beside you, even offline.</p><div class="dialog-actions"><button class="primary" data-action="install" autofocus>' +
       icon("install") +
       ' Install game</button><button class="plain" data-action="close">Maybe later</button></div>',
     "install-dialog",
@@ -185,7 +207,7 @@ function offerInstall() {
     sessionStorage.setItem(popupKey, "1");
   } catch {}
 }
-dialog.addEventListener("close", offerInstall);
+dialog.addEventListener("close", offerPendingPrompt);
 const installFlow = setupInstall(
   $<HTMLButtonElement>("#install"),
   () => modal("Install Box Game", installInstructions(), "install-dialog"),
@@ -194,7 +216,7 @@ const installFlow = setupInstall(
   (installed) => {
     installBanner.hidden = installed;
     if (installed && dialog.classList.contains("install-dialog")) close();
-    if (!installed) offerInstall();
+    if (!installed) offerPendingPrompt();
   },
 );
 $("#skip-install").onclick = () => {
@@ -204,12 +226,36 @@ $("#skip-install").onclick = () => {
   } catch {}
   $("#install").focus();
 };
+function updateReady() {
+  updateButton.hidden = false;
+  offerPendingPrompt();
+}
 const updateSW = registerSW({
-  onNeedRefresh() {
-    $("#update").hidden = false;
-  },
+  onNeedRefresh: updateReady,
+  // If another tab updates, let this player decide when to reload.
+  onNeedReload: updateReady,
 });
-$("#update").onclick = () => void updateSW(true);
+updateButton.onclick = showUpdate;
+const reloadGame = () => location.reload();
+async function applyUpdate(button: HTMLButtonElement) {
+  button.disabled = true;
+  button.textContent = "Updating…";
+  try {
+    const registration = await navigator.serviceWorker.getRegistration();
+    if (!registration?.waiting) {
+      reloadGame();
+      return;
+    }
+    navigator.serviceWorker.addEventListener("controllerchange", reloadGame, { once: true });
+    await updateSW();
+  } catch {
+    navigator.serviceWorker.removeEventListener("controllerchange", reloadGame);
+    button.disabled = false;
+    button.textContent = "Try again";
+    const message = dialog.querySelector("p");
+    if (message) message.textContent = "The update couldn’t finish. Try again or choose Later to keep playing.";
+  }
+}
 const modes = { solo: "Solo", local: "Local", online: "Online" };
 const modeHelp = {
   solo: "Face the computer. Watch for long chains.",
@@ -369,25 +415,38 @@ function drawWaiting() {
   artOff?.();
   artOff = undefined;
   const r = view.room;
-  $("#surface").innerHTML =
-    '<section class="waiting panel"><div class="waiting-mark">' +
-    icon("online") +
-    '</div><div class="kicker">ONLINE ROOM</div><h1>' +
-    (r.status === "abandoned"
-      ? "Room closed"
-      : r.public
-        ? "Finding a player…"
-        : "Waiting for a friend") +
-    "</h1><p>" +
-    (r.status === "abandoned"
-      ? "A player left this room."
-      : r.public
-        ? "Another player looking for this board size can join you."
-        : "Keep this room open. Your friend can join by code, invite link, or QR.") +
-    '</p>' + (view.notice ? '<p class="connection-note" role="status">' + esc(view.notice) + '</p>' : '') +
-    '<strong class="room-code">' +
-    esc(r.code) +
-    '</strong><button class="secondary" data-action="copy">Copy room code</button><div class="share-tools"><button class="secondary" data-action="link">Copy invite link</button><button class="secondary" data-action="qr">Show QR code</button></div><button class="plain" data-action="exit">Leave room</button></section>';
+  const waiting = r.status === "waiting";
+  const status = !waiting ? "This room has closed."
+    : r.public ? "Looking for a player for this board size…" : "Waiting for a friend to join…";
+  const invite = waiting ? `
+    <p class="room-code-label">Room code</p><strong class="room-code">${esc(r.code)}</strong>
+    <canvas class="invite-qr" width="384" height="384" role="img" aria-label="QR code for room ${esc(r.code)}" hidden></canvas>
+    <div class="invite-actions">
+      <button class="plain" data-action="copy-link">${icon("link")}Copy link</button>
+      <button class="plain" data-action="share">${icon("share")}Share invite</button>
+    </div>
+    <p id="invite-feedback" role="status"></p>` : "";
+  $("#surface").innerHTML = `<section class="room-lobby" aria-labelledby="lobby-title">
+    <button class="room-back plain" data-action="exit">${icon("back")}Leave room</button>
+    <h1 id="lobby-title">Online room</h1>
+    <div class="waiting panel">
+      <div class="waiting-mark">${icon("online")}</div>
+      <p role="status">${status}</p>
+      ${view.notice ? '<p class="connection-note" role="status">' + esc(view.notice) + '</p>' : ""}
+      ${invite}
+    </div>
+  </section>`;
+  if (waiting) void drawInviteQR($<HTMLCanvasElement>(".invite-qr"), inviteUrl(r.code));
+}
+async function drawInviteQR(canvas: HTMLCanvasElement, url: string) {
+  try {
+    const { toCanvas } = await import("qrcode");
+    if (!canvas.isConnected) return;
+    await toCanvas(canvas, url, { width: 384, margin: 4, errorCorrectionLevel: "M" });
+    canvas.hidden = false;
+  } catch {
+    if (canvas.isConnected) $("#invite-feedback").textContent = "The QR code couldn’t load. Use Copy link or Share invite.";
+  }
 }
 function titleOf(m: Match) {
   const a = score(m.state, "Player1"),
@@ -808,6 +867,9 @@ document.addEventListener("click", async (e) => {
       return;
     }
     switch (action) {
+      case "apply-update":
+        await applyUpdate(b);
+        break;
       case "install":
         close();
         await installFlow.request();
@@ -828,54 +890,25 @@ document.addEventListener("click", async (e) => {
       case "start":
         startLocal();
         break;
-      case "copy":
-        if (view) {
-          try {
-            await navigator.clipboard.writeText(view.room.code);
-            notify("Room code copied.");
-          } catch {
-            notify("Share room code " + view.room.code + ".");
-          }
+      case "share":
+        await shareGame();
+        break;
+      case "copy-link": {
+        if (!view || view.room.status !== "waiting") break;
+        const feedback = $("#invite-feedback");
+        const url = inviteUrl(view.room.code);
+        try {
+          await navigator.clipboard.writeText(url);
+          feedback.textContent = "Invite link copied.";
+        } catch {
+          if (!feedback.isConnected) break;
+          feedback.innerHTML = '<label for="manual-link">Select this invite link to copy it.</label><input id="manual-link" class="share-url" readonly value="' + esc(url) + '">';
+          const field = $<HTMLInputElement>("#manual-link");
+          field.focus();
+          field.select();
         }
         break;
-      case "link":
-        if (view) {
-          const url = inviteUrl(view.room.code);
-          try {
-            await navigator.clipboard.writeText(url);
-            notify("Invite link copied.");
-          } catch {
-            modal(
-              "Invite link",
-              '<p><a href="' + esc(url) + '">' + esc(url) + "</a></p>",
-            );
-          }
-        }
-        break;
-      case "qr":
-        if (view) {
-          const code = view.room.code,
-            url = inviteUrl(code);
-          const { toDataURL } = await import("qrcode");
-          const img = await toDataURL(url, {
-            width: 320,
-            margin: 4,
-            errorCorrectionLevel: "M",
-            color: { dark: "#292038", light: "#ffffff" },
-          });
-          if (view?.room.code === code)
-            modal(
-              "Scan to join",
-              '<img class="qr" src="' +
-                img +
-                '" alt="QR code for room ' +
-                code +
-                '"><p class="qr-caption">Scan with your phone camera or enter <strong>' +
-                code +
-                "</strong>.</p>",
-            );
-        }
-        break;
+      }
       case "again":
         close();
         if (room) await room.rematch();
@@ -919,6 +952,24 @@ function inviteUrl(code: string) {
   const url = new URL("./", location.href);
   url.searchParams.set("room", code);
   return url.href;
+}
+async function shareGame() {
+  const code = screen === "waiting" && view?.room.status === "waiting" ? view.room.code : undefined;
+  const url = code ? inviteUrl(code) : new URL("./", location.href).href;
+  const text = code ? "Join my Box Game room with code " + code + "." : "Play Box Game with me.";
+  if (navigator.share) {
+    try {
+      await navigator.share({ title: "Box Game", text, url });
+      return;
+    } catch (error) {
+      if (error instanceof Error && error.name === "AbortError") return;
+    }
+  }
+  const email = "mailto:?subject=Box%20Game&body=" + encodeURIComponent(text + "\n\n" + url);
+  modal(code ? "Share invite" : "Share Box Game",
+    '<label for="share-url">Send this link to a friend</label><input id="share-url" class="share-url" readonly value="' +
+    esc(url) + '"><a class="primary" href="' + esc(email) + '" autofocus>Share by email</a>',
+  );
 }
 const saved = read<Match>("match");
 let peerSave = false;
