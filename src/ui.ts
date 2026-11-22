@@ -20,6 +20,7 @@ const paths: Record<string, string> = {
   trophy:
     '<path d="M7 3h10v6a5 5 0 0 1-10 0zM7 5H3v2a4 4 0 0 0 5 4m9-6h4v2a4 4 0 0 1-5 4m-4 3v5m-5 2h10"/>',
   back: '<path d="m14 5-7 7 7 7"/>',
+  exit: '<path d="M10 4H5a1 1 0 0 0-1 1v14a1 1 0 0 0 1 1h5m4-4 4-4-4-4m-6 4h10"/>',
   close: '<path d="m6 6 12 12M18 6 6 18"/>',
   edit: '<path d="m4 15 10-10 5 5L9 20l-6 1zM12 7l5 5"/>',
   box: '<path d="m12 2 9 5v10l-9 5-9-5V7zM3 7l9 5 9-5m-9 5v10"/>',

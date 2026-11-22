@@ -85,6 +85,7 @@ h3,
   height: 1px;
   overflow: hidden;
 }
+#announcement { position: fixed; top: 0; }
 .period,
 .hero-copy h1 > span {
   color: var(--purple);
@@ -725,20 +726,58 @@ footer .install {
   width: 8px;
   height: 8px;
 }
-.match-detail,
-.transport {
+.match-detail, .room-connection {
   font-size: 0.85rem;
   color: var(--muted);
   gap: 8px;
 }
-.transport {
-  margin-top: 6px;
+.room-connection {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 2px 8px;
+  margin-top: 4px;
+}
+.room-connection.connected .transport::before {
+  content: "";
+  display: inline-block;
+  width: 7px;
+  height: 7px;
+  margin-inline-end: 6px;
+  border-radius: 50%;
+  background: #80d5ae;
 }
 .connection-route {
-  display: inline-block;
-  color: var(--purple);
-  font-size: .8rem;
-  font-weight: 700;
+  border-inline-start: 1px solid var(--line);
+  padding-inline-start: 8px;
+}
+.room-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px 12px;
+  margin-top: 12px;
+}
+.room-actions .turn { flex: auto; padding: 0; }
+.room-actions .leave-room { flex: auto; }
+.leave-room {
+  min-height: 46px;
+  padding-inline: 14px;
+  border-color: #a66973;
+  background: #3d2934;
+  color: #ffd3d9;
+}
+.leave-room:hover { background: #523140; }
+.progress-row:has(.match-detail) {
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 2px 12px;
+}
+.progress-row .match-detail {
+  display: inline-flex;
+  gap: 4px;
+  margin: 0;
 }
 .rematch-hint:empty {
   display: none;
@@ -751,6 +790,9 @@ footer .install {
   display: flex;
   flex-direction: column;
   align-items: center;
+}
+.board-space {
+  display: contents;
 }
 .board-shell {
   width: min(100%, calc((100svh - 224px) * var(--w) / var(--h)));
@@ -1116,8 +1158,7 @@ dialog p + p {
   .match-meta {
     position: relative;
   }
-  .match-detail,
-  .transport {
+  .match-meta .match-detail {
     display: inline-flex;
     margin: 7px 10px 0 0;
   }
@@ -1270,6 +1311,74 @@ dialog p + p {
   footer {
     min-height: 46px;
   }
+}
+@media (orientation: landscape) and (max-height: 560px) {
+  #app:has(.match-layout) {
+    max-width: 1000px;
+    height: 100dvh;
+    min-height: 0;
+    padding: env(safe-area-inset-top) max(12px, env(safe-area-inset-right))
+      env(safe-area-inset-bottom) max(12px, env(safe-area-inset-left));
+
+    header { min-height: 48px; }
+    .brand { font-size: 1.25rem; }
+    .brand img { width: 30px; height: 30px; }
+    #install-wrap.offer { margin-top: 4px; padding-block: 0; }
+    footer { min-height: 0; padding-block: 0; }
+    #surface { flex: 1; min-height: 0; margin: 0; padding-block: 8px; }
+  }
+  .match-layout {
+    height: 100%;
+    grid-template-columns: clamp(180px, 36%, 280px) minmax(0, 1fr);
+    grid-template-rows: minmax(0, 1fr);
+    gap: clamp(10px, 2vw, 24px);
+    align-items: stretch;
+  }
+  .match-meta {
+    align-self: center;
+    max-height: 100%;
+    overflow: auto;
+    padding: 10px 12px;
+    border-radius: 16px;
+    line-height: 1.25;
+  }
+  .match-meta h1 { display: none; }
+  .scores { grid-template-columns: 1fr; gap: 4px; margin-top: 7px; }
+  .score { padding: 3px 8px; gap: 6px; border-radius: 8px; }
+  .score > i { width: 9px; height: 9px; }
+  .score > div { display: flex; align-items: baseline; gap: 6px; }
+  .score b { font-size: 1rem; }
+  .score strong { font-size: 1.25rem; }
+  .turn { padding: 6px 0 2px; }
+  .match-meta .match-detail { display: flex; margin: 0; }
+  .room-actions { margin-top: 6px; }
+  .match-meta .secondary, .match-meta .primary {
+    position: static;
+    width: 100%;
+    min-height: 44px;
+    margin: 6px 0 0;
+  }
+  .play-area {
+    display: grid;
+    grid-template-rows: minmax(0, 1fr) auto;
+    align-items: stretch;
+    margin: 0;
+  }
+  .board-space {
+    display: grid;
+    place-items: center;
+    container-type: size;
+  }
+  .board-shell {
+    --rim: 12px;
+    /* Size the grid inside its rim so rectangular boards keep square cells. */
+    --frame: calc(2 * (var(--rim) + 1px));
+    width: min(100cqw, calc((100cqh - var(--frame)) * var(--w) / var(--h) + var(--frame)));
+    min-width: 0;
+    padding: var(--rim);
+    border-radius: 14px;
+  }
+  .progress-row { margin-top: 9px; }
 }
 @media (prefers-reduced-motion: no-preference) {
   .tile {

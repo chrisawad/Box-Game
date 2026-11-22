@@ -173,6 +173,16 @@ test("QR and link pair two peers, enforce seats, reconnect, finish and rematch",
       await expect(p.locator(".transport")).toHaveText("Connected to opponent", {
         timeout: 25000,
       });
+    const leave = y.getByRole("button", { name: "Leave room" });
+    for (const [width, height] of [[390, 844], [568, 320], [844, 390]]) {
+      await y.setViewportSize({ width, height });
+      await expect(y.locator(".room-connection")).toBeInViewport({ ratio: 1 });
+      await expect(leave).toBeInViewport({ ratio: 1 });
+      expect((await leave.boundingBox())!.height).toBeGreaterThanOrEqual(44);
+      if (width > height) await expect(y.locator(".progress-row")).toBeInViewport({ ratio: 1 });
+    }
+    await leave.tap();
+    await y.getByRole("button", { name: "Keep playing" }).tap();
     await expect(y.locator(".edge:enabled")).toHaveCount(0);
     await x.locator(".edge:enabled").first().click();
     await expect(y.locator(".edge.owned")).toHaveCount(1);

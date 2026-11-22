@@ -447,7 +447,7 @@ function drawWaiting() {
     </div>
     <p id="invite-feedback" role="status"></p>` : "";
   $("#surface").innerHTML = `<section class="room-lobby" aria-labelledby="lobby-title">
-    <button class="room-back plain" data-action="exit">${icon("back")}Leave room</button>
+    <button class="plain leave-room" data-action="exit">${icon("exit")}Leave room</button>
     <h1 id="lobby-title">Online room</h1>
     <div class="waiting panel">
       <div class="waiting-mark">${icon("online")}</div>
@@ -553,40 +553,36 @@ function game() {
         "</strong></div>",
     )
     .join("");
+  let connection = "";
+  if (view) {
+    const abandoned = view.room.status === "abandoned";
+    const connected = view.connected && !opponentOffline && !abandoned;
+    const status = abandoned ? "Leave this room to start another game."
+      : connected ? 'Connected<span class="sr"> to opponent</span>'
+      : "Your board is saved. Play resumes when both players reconnect.";
+    const route = connected && view.route !== "unknown"
+      ? `<span class="connection-route">${view.route === "relay" ? "Via relay" : "Direct"}</span>` : "";
+    connection = `<div class="room-connection${connected ? " connected" : ""}">
+      <span class="transport">${status}</span>${route}</div>`;
+    if (view.notice) connection += `<p class="connection-note" role="status">${esc(view.notice)}</p>`;
+  }
+  const boardSize = `<span class="match-detail">${icon("grid")}${s.board.columns} × ${s.board.rows} board</span>`;
+  const turn = `<div class="turn" role="status" style="--ink:${colors[player.color]}"><i></i>${esc(message)}</div>`;
   $("#surface").innerHTML =
     '<div class="match-layout"><section class="match-meta panel"><div class="kicker"><span></span>' +
     subtitle +
-    '</div><h1>Scoreboard</h1><div class="scores">' +
+    '</div>' + connection + '<h1>Scoreboard</h1><div class="scores">' +
     scores +
-    '</div><div class="turn" role="status" style="--ink:' +
-    colors[player.color] +
-    '"><i></i>' +
-    esc(message) +
-    '</div><div class="match-detail">' +
-    icon("grid") +
-    s.board.columns +
-    " × " +
-    s.board.rows +
-    " board</div>" +
-    (view
-      ? '<div class="transport">' +
-        (view.room.status === "abandoned"
-          ? "Leave this room to start another game."
-          : view.connected ? "Connected to opponent"
-          : "Your board is saved. Play resumes when both players reconnect.") +
-        "</div>" + (view.connected && view.room.status !== "abandoned" && view.route !== "unknown"
-          ? '<span class="connection-route">' + (view.route === "relay" ? "Via relay" : "Direct") + "</span>" : "") +
-        (view.notice ? '<p class="connection-note" role="status">' + esc(view.notice) + '</p>' : "")
-      : "") +
+    '</div>' +
+    (view ? `<div class="room-actions">${turn}<button class="plain leave-room" data-action="exit">${icon("exit")}Leave room</button></div>` : turn + boardSize) +
     (over && rematchHint() ? '<p class="rematch-hint" role="status">' + rematchHint() + '</p>' : "") +
     (over && canRematch()
       ? '<button class="primary" data-action="again">Play again</button>'
       : "") +
-    '<button class="secondary" data-action="exit">' +
-    (view ? "Leave room" : "New game") +
-    '</button></section><section class="play-area">' +
+    (view ? "" : '<button class="secondary" data-action="exit">New game</button>') +
+    '</section><section class="play-area"><div class="board-space">' +
     boardHtml(s, m.players, locked, m.last) +
-    '<div class="progress-row"><span>' +
+    '</div><div class="progress-row">' + (view ? boardSize : "") + '<span>' +
     Object.keys(s.lines).length +
     " / " +
     grid(s.board).edges.length +
