@@ -1,5 +1,6 @@
 import Peer, { type DataConnection, type PeerOptions } from "peerjs";
 import { RoomError, roomFailure, roomMessages } from "./room-feedback";
+import { clearRoom, roomStorageKey } from "./room-storage";
 import {
   colors,
   finished,
@@ -44,8 +45,7 @@ type Packet = {
   reason?: string;
   code?: string;
 };
-const key = "box-game.peer-room.v1",
-  prefix = "chrisawad-box-v1-",
+const prefix = "chrisawad-box-v1-",
   alphabet = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
 const randomCode = () =>
   Array.from(
@@ -70,7 +70,7 @@ function roomOK(r: Room) {
 }
 export function savedRoom(): Saved | undefined {
   try {
-    const s = JSON.parse(sessionStorage.getItem(key) ?? "null");
+    const s = JSON.parse(sessionStorage.getItem(roomStorageKey) ?? "null");
     if (
       s &&
       roomOK(s.room) &&
@@ -79,11 +79,6 @@ export function savedRoom(): Saved | undefined {
       s.room.status !== "abandoned"
     )
       return s;
-  } catch {}
-}
-export function clearRoom() {
-  try {
-    sessionStorage.removeItem(key);
   } catch {}
 }
 const options: PeerOptions = import.meta.env.VITE_PEER_HOST
@@ -235,7 +230,7 @@ export class Session {
     if (room.players.player2)
       room.players.player2.connected = seat === "Player2" || connected;
     try {
-      sessionStorage.setItem(key, JSON.stringify(this.data));
+      sessionStorage.setItem(roomStorageKey, JSON.stringify(this.data));
     } catch {}
     this.listen({
       room: structuredClone(room),
@@ -538,11 +533,16 @@ export class Session {
     } else send(this.channel, { type: "rematch", round: r.round });
   }
   async leave() {
-    send(this.channel, { type: "leave" });
     clearRoom();
-    await sleep(100);
-    this.stop();
-    clearRoom();
+    try {
+      send(this.channel, { type: "leave" });
+      await sleep(100);
+    } catch {
+      // A channel that already closed cannot deliver the leave message.
+    } finally {
+      this.stop();
+      clearRoom();
+    }
   }
   stop() {
     if (this.closed) return;

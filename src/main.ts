@@ -24,6 +24,7 @@ import { installInstructions, setupInstall } from "./install";
 import { createWinCelebration } from "./celebration";
 import { createWinAudio } from "./win-audio";
 import type { OnlineView, Session } from "./online";
+import { clearRoom, roomStorageKey } from "./room-storage";
 import { roomFailure, roomMessages, type RoomOperation } from "./room-feedback";
 
 const $ = <T extends HTMLElement = HTMLElement>(s: string) =>
@@ -181,8 +182,8 @@ if (inviteVisit) collapseInstallBanner();
 function showUpdate() {
   modal(
     "Game update ready",
-    '<p>A new version of Box Game is ready. Updating will reload the game.</p><div class="dialog-actions"><button class="primary" data-action="apply-update">' +
-      icon("install") + ' Update now</button><button class="plain" data-action="close" autofocus>Later</button></div>',
+    '<p id="update-warning">Updating will exit any active game in this tab and return you to setup. You’ll lose progress in that game.</p><div class="dialog-actions"><button class="primary" data-action="apply-update" aria-describedby="update-warning">' +
+      icon("install") + ' Update now</button><button class="plain" data-action="close" aria-describedby="update-warning" autofocus>Cancel</button></div>',
   );
   updateShown = true;
   try {
@@ -236,24 +237,38 @@ const updateSW = registerSW({
   onNeedReload: updateReady,
 });
 updateButton.onclick = showUpdate;
-const reloadGame = () => location.reload();
 async function applyUpdate(button: HTMLButtonElement) {
   button.disabled = true;
   button.textContent = "Updating…";
+  const finishUpdate = async () => {
+    if (!dialog.open || !button.isConnected) return;
+    close();
+    app.inert = true;
+    try {
+      await leaveGame();
+      history.replaceState({ ...history.state, setupAfterUpdate: true }, "");
+      try { sessionStorage.removeItem(updateKey); } catch {}
+    } finally {
+      location.reload();
+    }
+  };
   try {
     const registration = await navigator.serviceWorker.getRegistration();
+    if (!dialog.open || !button.isConnected) return;
     if (!registration?.waiting) {
-      reloadGame();
+      await finishUpdate();
       return;
     }
-    navigator.serviceWorker.addEventListener("controllerchange", reloadGame, { once: true });
+    navigator.serviceWorker.addEventListener("controllerchange", finishUpdate, { once: true });
     await updateSW();
   } catch {
-    navigator.serviceWorker.removeEventListener("controllerchange", reloadGame);
+    navigator.serviceWorker.removeEventListener("controllerchange", finishUpdate);
+    if (!dialog.open || !button.isConnected) return;
     button.disabled = false;
     button.textContent = "Try again";
-    const message = dialog.querySelector("p");
-    if (message) message.textContent = "The update couldn’t finish. Try again or choose Later to keep playing.";
+    const warning = $("#update-warning");
+    warning.setAttribute("role", "alert");
+    warning.textContent = "The update couldn’t finish. Try again to exit the game and update, or choose Cancel to keep playing.";
   }
 }
 const modes = { solo: "Solo", local: "Local", online: "Online" };
@@ -657,9 +672,7 @@ function scheduleAI() {
 }
 function startLocal() {
   close();
-  try {
-    sessionStorage.removeItem("box-game.peer-room.v1");
-  } catch {}
+  clearRoom();
   const players = structuredClone(prefs.players);
   if (prefs.mode === "solo") players.Player2.initials = "CPU";
   match = { mode: prefs.mode, players, state: fresh({ ...prefs.size }) };
@@ -746,14 +759,20 @@ async function online(
     setBusy(false);
   }
 }
-async function exit() {
-  close();
+async function leaveGame() {
   cancelAI();
   roomGeneration++;
+  // Another tab may have written a different local match to the shared save.
+  if (match && match.mode !== "online" && JSON.stringify(read("match")) === JSON.stringify(match))
+    save("match", null);
   const oldRoom = room;
   room = undefined;
   if (oldRoom) await oldRoom.leave();
-  save("match", null);
+  else clearRoom();
+}
+async function exit() {
+  close();
+  await leaveGame();
   setup();
   notify("");
 }
@@ -971,10 +990,15 @@ async function shareGame() {
     esc(url) + '"><a class="primary" href="' + esc(email) + '" autofocus>Share by email</a>',
   );
 }
-const saved = read<Match>("match");
+const saved = history.state?.setupAfterUpdate ? undefined : read<Match>("match");
+if (history.state?.setupAfterUpdate) {
+  const state = { ...history.state };
+  delete state.setupAfterUpdate;
+  history.replaceState(state, "");
+}
 let peerSave = false;
 try {
-  peerSave = !!sessionStorage.getItem("box-game.peer-room.v1");
+  peerSave = !!sessionStorage.getItem(roomStorageKey);
 } catch {}
 if (
   !hasInvite &&

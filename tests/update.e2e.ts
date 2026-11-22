@@ -1,6 +1,6 @@
-import { expect, test } from "@playwright/test";
+import { expect, test, type Page } from "@playwright/test";
 
-test("a waiting update can be dismissed, reopened in the header and applied during a game", async ({ page }) => {
+async function openWithPendingUpdate(page: Page) {
   // Give the page a previous controlling worker. The normal app entry then registers
   // sw.js as a real waiting update, without changing the server's build mid-test.
   await page.route("**/update-fixture.html", route => route.fulfill({
@@ -13,16 +13,22 @@ test("a waiting update can be dismissed, reopened in the header and applied duri
     await navigator.serviceWorker.ready;
   });
   await page.goto("./");
-  const download = page.locator("header #update");
+  const download = page.locator("header").getByRole("button", { name: "Game update available", includeHidden: true });
   const update = page.getByRole("dialog", { name: "Game update ready" });
   await expect(download).toBeVisible();
   // Honor any install prompt already on screen before showing an update.
   const install = page.getByRole("dialog", { name: "Install Box Game" });
   if (await install.isVisible()) await install.getByRole("button", { name: "Maybe later" }).click();
-  await expect(update.getByRole("button", { name: "Later" })).toBeFocused();
-  await update.getByRole("button", { name: "Later" }).click();
+  await expect(update.getByRole("button", { name: "Cancel" })).toBeFocused();
+  await expect(update).toContainText("Updating will exit any active game");
+  await update.getByRole("button", { name: "Cancel" }).click();
   await expect(update).toBeHidden();
   await expect(download).toBeInViewport();
+  return { download, update };
+}
+
+test("cancel preserves the board and confirming a header update exits to setup", async ({ page }) => {
+  const { download, update } = await openWithPendingUpdate(page);
   await page.getByRole("button", { name: "Local", exact: true }).click();
   await page.getByRole("button", { name: "Start game" }).click();
   await page.locator(".edge:enabled").first().click();
@@ -31,17 +37,52 @@ test("a waiting update can be dismissed, reopened in the header and applied duri
   await expect(update).toBeHidden();
   await download.click();
   await expect(update).toBeVisible();
-  await page.keyboard.press("Escape");
+  await update.getByRole("button", { name: "Cancel" }).click();
   await expect(download).toBeFocused();
   await expect(page.locator(".edge.owned")).toHaveCount(1);
+  await page.locator(".edge:enabled").first().click();
+  await expect(page.locator(".edge.owned")).toHaveCount(2);
+  await download.click();
+  await page.keyboard.press("Escape");
+  await expect(download).toBeFocused();
   await download.click();
   await Promise.all([
     page.waitForEvent("domcontentloaded"),
     update.getByRole("button", { name: "Update now" }).click(),
   ]);
-  await expect(page.locator(".edge.owned")).toHaveCount(1);
+  await expect(page.getByRole("button", { name: "Start game" })).toBeVisible();
+  await expect(page.locator(".edge")).toHaveCount(0);
   await expect(download).toBeHidden();
   expect(await page.evaluate(() => new URL(navigator.serviceWorker.controller!.scriptURL).search)).toBe("");
+  await page.reload();
+  await expect(page.getByRole("button", { name: "Start game" })).toBeVisible();
+});
+
+test("cancel keeps both players connected and updating tells the opponent you left", async ({ page, browser, baseURL }, info) => {
+  test.skip(info.project.name !== "desktop" || !(process.env.PEER_CI || process.env.ONLINE_SMOKE), "Requires a room service.");
+  const { download, update } = await openWithPendingUpdate(page);
+  await page.getByRole("button", { name: "Online", exact: true }).click();
+  await page.getByRole("button", { name: "Create private room" }).click();
+  const code = await page.locator(".room-code").innerText({ timeout: 25000 });
+  const guest = await browser.newPage({ baseURL });
+  try {
+    await guest.goto("./?room=" + code);
+    await guest.getByRole("button", { name: "Join room" }).click();
+    await expect(page.locator(".transport")).toHaveText("Connected to opponent", { timeout: 25000 });
+    await download.click();
+    await update.getByRole("button", { name: "Cancel" }).click();
+    await page.locator(".edge:enabled").first().click();
+    await expect(guest.locator(".edge.owned")).toHaveCount(1);
+    await download.click();
+    await update.getByRole("button", { name: "Update now" }).click();
+    await expect(guest.locator(".turn")).toHaveText("Opponent left");
+    await expect(page.getByRole("heading", { name: "Play online" })).toBeVisible();
+    await expect(download).toBeHidden();
+    await page.reload();
+    await expect(page.getByRole("button", { name: "Create private room" })).toBeVisible();
+  } finally {
+    await guest.close();
+  }
 });
 
 test("sharing the game uses its home link and respects cancellation", async ({ page, baseURL }) => {
