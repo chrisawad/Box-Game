@@ -67,6 +67,12 @@ test("an installed home-screen launch can play immediately", async ({ page }) =>
   await page.goto("./");
   await page.getByRole("button", { name: "Start game" }).click();
   await expect(page.locator(".edge:enabled").first()).toBeVisible();
+  const icon = page.locator("header .brand img");
+  const manifest = await (await page.request.get("./manifest.webmanifest")).json();
+  const launcher = manifest.icons.find((entry: { sizes: string }) => entry.sizes === "192x192");
+  await expect(icon).toHaveJSProperty("src", new URL(launcher.src, page.url()).href);
+  await expect(icon).toHaveJSProperty("naturalWidth", 192);
+  await expect(icon).toBeInViewport();
   await expect(page.getByRole("dialog")).toBeHidden();
   await expect(page.locator("#install-wrap")).toBeHidden();
 });

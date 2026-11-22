@@ -107,8 +107,6 @@ export function boardHtml(
     "</div></div>"
   );
 }
-export const logo =
-  '<span class="brand-icon" aria-hidden="true"><i></i><i></i><i></i><i></i></span>';
 export function frame(title: string, body: string) {
   return (
     '<div class="dialog-head"><h2 id="dialog-title">' +

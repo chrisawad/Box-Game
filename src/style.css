@@ -135,42 +135,6 @@ header nav,
   letter-spacing: -0.065em;
   gap: 0.65rem;
 }
-.brand-icon {
-  position: relative;
-  display: block;
-  width: 34px;
-  height: 34px;
-  background: #6649d0;
-  border-radius: 10px;
-  box-shadow: inset 0 -3px #473394;
-  rotate: -5deg;
-}
-.brand-icon i {
-  position: absolute;
-  display: block;
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  background: #fff4d0;
-  left: 8px;
-  top: 7px;
-}
-.brand-icon i:nth-child(2) {
-  left: 20px;
-}
-.brand-icon i:nth-child(3) {
-  top: 19px;
-}
-.brand-icon i:nth-child(4) {
-  left: 20px;
-  top: 19px;
-}
-.brand-icon:before {
-  content: "";
-  position: absolute;
-  inset: 9px 10px 11px;
-  border: 2px solid #dfccff;
-}
 header nav {
   gap: 10px;
 }

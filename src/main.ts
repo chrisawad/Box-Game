@@ -19,7 +19,7 @@ import {
   type Size,
   type State,
 } from "./game";
-import { boardHtml, esc, fallbackArt, frame, icon, logo } from "./ui";
+import { boardHtml, esc, fallbackArt, frame, icon } from "./ui";
 import { installInstructions, setupInstall } from "./install";
 import { createWinCelebration } from "./celebration";
 import { createWinAudio } from "./win-audio";
@@ -127,8 +127,7 @@ function note(capture: boolean) {
   osc.stop(t + 0.15);
 }
 app.innerHTML =
-  '<header><div class="brand">' +
-  logo +
+  '<header><div class="brand"><img src="./icons/board-192.png" width="40" height="40" alt="">' +
   '<span>Box Game<span class="period">.</span></span></div><nav><button class="plain help-button" data-action="help">' +
   icon("help") +
   '<span>How to play</span></button><button class="round" id="sound" data-action="sound"></button></nav></header><aside id="install-wrap" class="offer" aria-label="Install Box Game" hidden><div class="install-copy"><b>Install Box Game</b><small>Play solo or local games offline.</small></div><button class="install" id="install">' +
