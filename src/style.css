@@ -734,6 +734,15 @@ footer .install {
 .transport {
   margin-top: 6px;
 }
+.connection-route {
+  display: inline-block;
+  color: var(--purple);
+  font-size: .8rem;
+  font-weight: 700;
+}
+.rematch-hint:empty {
+  display: none;
+}
 .match-meta .primary {
   margin-top: 16px;
 }

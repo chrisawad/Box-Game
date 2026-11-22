@@ -50,6 +50,24 @@ async function configure(p: Page, tag: string, option = "Host a game") {
   await p.getByRole("radio", { name: option }).check();
   await p.getByLabel("Your initials").fill(tag);
 }
+test("an installed waiting room keeps its invite and has one host window", async ({ context, page }, info) => {
+  test.skip(!process.env.PEER_CI || info.project.name !== "desktop", "Requires isolated signaling.");
+  await context.addInitScript(() => Object.defineProperty(navigator, "standalone", { value: true }));
+  await page.goto("./");
+  await page.getByRole("button", { name: "Online", exact: true }).click();
+  await page.getByRole("button", { name: "Create private room" }).click();
+  const code = await page.locator(".room-code").innerText();
+  const reopened = await context.newPage();
+  await reopened.goto("./");
+  await expect(reopened.locator("#room-feedback")).toContainText("open in another game window");
+  await expect(page.locator(".room-code")).toHaveText(code);
+  await page.close();
+  await reopened.reload();
+  await expect(reopened.locator(".room-code")).toHaveText(code);
+  await reopened.getByRole("button", { name: "Leave room" }).click();
+  await expect(reopened.locator(".room-code")).toHaveCount(0);
+  expect(await reopened.evaluate(() => localStorage.getItem("box-game.waiting-host.v1"))).toBeNull();
+});
 test("an offline guest gets recovery advice at the Join button", async ({ page, context }) => {
   await page.goto("./?room=ABC234");
   const join = page.getByRole("button", { name: "Join room" });
@@ -181,12 +199,11 @@ test("QR and link pair two peers, enforce seats, reconnect, finish and rematch",
       await expect(p.getByRole("dialog")).toBeVisible();
       await p.getByRole("button", { name: "View board" }).click();
     }
-    const starter = (await x
-      .getByRole("button", { name: "Play again" })
-      .count())
-      ? x
-      : y;
-    await starter.getByRole("button", { name: "Play again" }).click();
+    await y.getByRole("button", { name: "Play again" }).click();
+    await expect(y.getByText("Waiting for your opponent to play again.")).toBeVisible();
+    await expect(x.getByText("Your opponent wants to play again.")).toBeVisible();
+    await expect(x.locator(".edge.owned")).toHaveCount(12);
+    await x.getByRole("button", { name: "Play again" }).click();
     for (const p of [x, y])
       await expect(p.locator(".edge.owned")).toHaveCount(0);
     await x.getByRole("button", { name: "Leave room" }).click();

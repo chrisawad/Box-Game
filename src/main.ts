@@ -24,8 +24,10 @@ import { installInstructions, setupInstall } from "./install";
 import { createWinCelebration } from "./celebration";
 import { createWinAudio } from "./win-audio";
 import type { OnlineView, Session } from "./online";
-import { clearRoom, roomStorageKey } from "./room-storage";
+import { clearRoom, codes, roomStorageKey, waitingHost } from "./room-storage";
+import { drawInviteQR, inviteURL, shareInvite } from "./multiplayer/invite";
 import { roomFailure, roomMessages, type RoomOperation } from "./room-feedback";
+const { isRoomCode } = codes;
 
 const $ = <T extends HTMLElement = HTMLElement>(s: string) =>
   document.querySelector<T>(s)!;
@@ -80,7 +82,7 @@ type RoomAction = Exclude<RoomOperation, "restore" | "play">;
 let roomAction: RoomAction = hasInvite ? "join" : "create";
 if (hasInvite) prefs.mode = "online";
 let screen: "setup" | "game" | "waiting" = "setup",
-  joinCode = incomingCode && /^[A-HJ-NP-Z2-9]{6}$/.test(incomingCode) ? incomingCode : "",
+  joinCode = incomingCode && isRoomCode(incomingCode) ? incomingCode : "",
   working = false,
   artOff: (() => void) | undefined;
 let worker: Worker | undefined,
@@ -451,13 +453,11 @@ function drawWaiting() {
       ${invite}
     </div>
   </section>`;
-  if (waiting) void drawInviteQR($<HTMLCanvasElement>(".invite-qr"), inviteUrl(r.code));
+  if (waiting) void showInviteQR($<HTMLCanvasElement>(".invite-qr"), inviteURL(r.code));
 }
-async function drawInviteQR(canvas: HTMLCanvasElement, url: string) {
+async function showInviteQR(canvas: HTMLCanvasElement, url: string) {
   try {
-    const { toCanvas } = await import("qrcode");
-    if (!canvas.isConnected) return;
-    await toCanvas(canvas, url, { width: 384, margin: 4, errorCorrectionLevel: "M" });
+    await drawInviteQR(canvas, url, 384, 4);
     canvas.hidden = false;
   } catch {
     if (canvas.isConnected) $("#invite-feedback").textContent = "The QR code couldn’t load. Use Copy link or Share invite.";
@@ -471,13 +471,18 @@ function titleOf(m: Match) {
     : m.players[a > b ? "Player1" : "Player2"].initials + " wins!";
 }
 function canRematch() {
-  return (
-    !view ||
-    (view.room.rematchRequester === view.seat &&
-      !!view.room.players.player1.connected &&
-      !!view.room.players.player2?.connected &&
-      view.connected)
-  );
+  if (!view) return true;
+  if (!view.connected || view.room.status !== "finished") return false;
+  const votes = view.room.rematchVotes;
+  return votes ? !votes[view.seat === "Player1" ? 0 : 1] : view.room.rematchRequester === view.seat;
+}
+function rematchHint() {
+  if (!view || view.room.status !== "finished" || !view.connected) return "";
+  const votes = view.room.rematchVotes;
+  if (!votes) return canRematch() ? "" : "Your opponent can start the rematch.";
+  const host = view.seat === "Player1";
+  if (votes[host ? 0 : 1]) return "Waiting for your opponent to play again.";
+  return votes[host ? 1 : 0] ? "Your opponent wants to play again." : "";
 }
 function game() {
   if (!match) return;
@@ -564,11 +569,13 @@ function game() {
       ? '<div class="transport">' +
         (view.room.status === "abandoned"
           ? "Leave this room to start another game."
-          : view.direct ? "Connected to opponent"
+          : view.connected ? "Connected to opponent"
           : "Keep both game tabs open. Check your internet connection if play doesn’t resume.") +
-        "</div>" +
+        "</div>" + (view.connected && view.room.status !== "abandoned" && view.route !== "unknown"
+          ? '<span class="connection-route">' + (view.route === "relay" ? "Via relay" : "Direct") + "</span>" : "") +
         (view.notice ? '<p class="connection-note" role="status">' + esc(view.notice) + '</p>' : "")
       : "") +
+    (over && rematchHint() ? '<p class="rematch-hint" role="status">' + rematchHint() + '</p>' : "") +
     (over && canRematch()
       ? '<button class="primary" data-action="again">Play again</button>'
       : "") +
@@ -618,9 +625,10 @@ function result() {
       '</div><p class="result-score">' +
       msg +
       "</p>" +
+      '<p class="rematch-hint" role="status">' + rematchHint() + '</p>' +
       (canRematch()
         ? '<button class="primary" data-action="again">Play again</button>'
-        : "<p>Your opponent can start the rematch.</p>") +
+        : "") +
       '<button class="plain" data-action="close">View board</button><canvas class="confetti" aria-hidden="true"></canvas>',
   );
   dialog.className = "result-dialog";
@@ -700,6 +708,7 @@ async function online(
       prefs.players.Player1,
       prefs.size,
       code,
+      message => { if (token === roomGeneration) notify(message); },
     );
     if (token !== roomGeneration) {
       session.stop();
@@ -740,6 +749,12 @@ async function online(
           (Object.keys(r.state.lines).length ? old?.last : undefined),
       };
       game();
+      if (dialog.open && dialog.classList.contains("result-dialog")) {
+        const hint = dialog.querySelector(".rematch-hint");
+        if (hint) hint.textContent = rematchHint();
+        const again = dialog.querySelector<HTMLButtonElement>('[data-action="again"]');
+        if (again) again.disabled = !canRematch();
+      }
       if (diffs.length)
         note(
           !!old &&
@@ -915,7 +930,7 @@ document.addEventListener("click", async (e) => {
       case "copy-link": {
         if (!view || view.room.status !== "waiting") break;
         const feedback = $("#invite-feedback");
-        const url = inviteUrl(view.room.code);
+        const url = inviteURL(view.room.code);
         try {
           await navigator.clipboard.writeText(url);
           feedback.textContent = "Invite link copied.";
@@ -967,23 +982,11 @@ document.addEventListener("click", async (e) => {
     );
   }
 });
-function inviteUrl(code: string) {
-  const url = new URL("./", location.href);
-  url.searchParams.set("room", code);
-  return url.href;
-}
 async function shareGame() {
   const code = screen === "waiting" && view?.room.status === "waiting" ? view.room.code : undefined;
-  const url = code ? inviteUrl(code) : new URL("./", location.href).href;
+  const url = code ? inviteURL(code) : new URL("./", location.href).href;
   const text = code ? "Join my Box Game room with code " + code + "." : "Play Box Game with me.";
-  if (navigator.share) {
-    try {
-      await navigator.share({ title: "Box Game", text, url });
-      return;
-    } catch (error) {
-      if (error instanceof Error && error.name === "AbortError") return;
-    }
-  }
+  if (await shareInvite({ title: "Box Game", text, url })) return;
   const email = "mailto:?subject=Box%20Game&body=" + encodeURIComponent(text + "\n\n" + url);
   modal(code ? "Share invite" : "Share Box Game",
     '<label for="share-url">Send this link to a friend</label><input id="share-url" class="share-url" readonly value="' +
@@ -998,7 +1001,7 @@ if (history.state?.setupAfterUpdate) {
 }
 let peerSave = false;
 try {
-  peerSave = !!sessionStorage.getItem(roomStorageKey);
+  peerSave = !!sessionStorage.getItem(roomStorageKey) || !!waitingHost.read();
 } catch {}
 if (
   !hasInvite &&

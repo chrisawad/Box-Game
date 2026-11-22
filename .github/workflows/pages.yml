@@ -35,6 +35,7 @@ jobs:
         env:
           BASE_PATH: ${{ steps.pages.outputs.base_path }}/
           PWA_ORIGIN: ${{ steps.pages.outputs.origin }}
+          VITE_TURN_WORKER_URL: ${{ vars.TURN_WORKER_URL }}
       - run: pnpm exec playwright install --with-deps chromium
       - name: Build isolated multiplayer test client
         run: pnpm exec vite build --outDir .qa/peer-ci
@@ -43,6 +44,7 @@ jobs:
           VITE_PEER_HOST: 127.0.0.1
           VITE_PEER_PORT: "9108"
           VITE_PEER_SECURE: "false"
+          VITE_TURN_WORKER_URL: /test-turn-credentials
       - run: pnpm test:e2e
         env:
           PEER_CI: "1"
