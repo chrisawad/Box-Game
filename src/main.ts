@@ -24,6 +24,7 @@ import { installInstructions, setupInstall } from "./install";
 import { createWinCelebration } from "./celebration";
 import { createWinAudio } from "./win-audio";
 import type { OnlineView, Session } from "./online";
+import { roomFailure, roomMessages, type RoomOperation } from "./room-feedback";
 
 const $ = <T extends HTMLElement = HTMLElement>(s: string) =>
   document.querySelector<T>(s)!;
@@ -69,13 +70,16 @@ type Match = { mode: Mode; players: Pair; state: State; last?: string };
 let match: Match | undefined,
   view: OnlineView | undefined,
   room: Session | undefined;
-const incomingCode = (new URL(location.href).searchParams.get("room") ?? "")
-  .trim()
-  .toUpperCase();
-const hasInvite = /^[A-HJ-NP-Z2-9]{6}$/.test(incomingCode);
+const incomingCode = new URL(location.href).searchParams.get("room")?.trim().toUpperCase();
+const hasInvite = incomingCode !== undefined;
+// Keep an invited guest's refresh quiet after joining removes the room query.
+const inviteVisit = hasInvite || history.state?.boxGameInvite === true;
+let previousMode: "solo" | "local" = prefs.mode === "local" ? "local" : "solo";
+type RoomAction = Exclude<RoomOperation, "restore" | "play">;
+let roomAction: RoomAction = hasInvite ? "join" : "create";
 if (hasInvite) prefs.mode = "online";
 let screen: "setup" | "game" | "waiting" = "setup",
-  joinCode = hasInvite ? incomingCode : "",
+  joinCode = incomingCode && /^[A-HJ-NP-Z2-9]{6}$/.test(incomingCode) ? incomingCode : "",
   working = false,
   artOff: (() => void) | undefined;
 let worker: Worker | undefined,
@@ -89,7 +93,9 @@ const announce = (m: string) => {
   $("#announcement").textContent = m;
 };
 const notify = (m: string) => {
-  $("#notice").textContent = m;
+  const feedback = document.querySelector("#room-feedback");
+  $("#notice").textContent = feedback ? "" : m;
+  if (feedback) feedback.textContent = m;
   announce(m);
 };
 function unlock() {
@@ -163,10 +169,11 @@ function collapseInstallBanner() {
 }
 try {
   popupShown = sessionStorage.getItem(popupKey) === "1";
-  if (sessionStorage.getItem(bannerKey) === "1") collapseInstallBanner();
+  if (!inviteVisit && sessionStorage.getItem(bannerKey) === "1") collapseInstallBanner();
 } catch {}
+if (inviteVisit) collapseInstallBanner();
 function offerInstall() {
-  if (popupShown || installBanner.hidden || dialog.open) return;
+  if (inviteVisit || popupShown || installBanner.hidden || dialog.open) return;
   modal(
     "Install Box Game",
     '<p>Add Box Game to your home screen to play solo or with someone beside you, even offline.</p><div class="install-actions"><button class="primary" data-action="install" autofocus>' +
@@ -208,52 +215,35 @@ const modes = { solo: "Solo", local: "Local", online: "Online" };
 const modeHelp = {
   solo: "Face the computer. Watch for long chains.",
   local: "Two players share one screen and take turns.",
-  online: "Play a friend by code or find a public game.",
 };
 const names: Side[] = ["Player1", "Player2"];
 function playerInput(side: Side) {
-  const p = prefs.players[side],
-    cpu = prefs.mode === "solo" && side === "Player2";
-  const label =
-    side === "Player2"
-      ? cpu
-        ? "Computer"
-        : "Player 2"
-      : prefs.mode === "local"
-        ? "Player 1"
-        : "You";
-  return (
-    '<div class="player-row"><button class="color-disc" style="--ink:' +
-    colors[p.color] +
-    '" data-color="' +
-    side +
-    '" aria-label="Choose ' +
-    (label === "You" ? "your" : label.toLowerCase()) +
-    ' color">' +
-    (cpu ? icon("solo") : icon("edit")) +
-    '</button><div><label for="' +
-    side +
-    '">' +
-    label +
-    "</label>" +
-    (cpu
-      ? "<strong>CPU</strong>"
-      : '<input id="' +
-        side +
-        '" data-player="' +
-        side +
-        '" aria-label="' +
-        (label === "You" ? "Your" : label) +
-        ' initials" value="' +
-        esc(p.initials) +
-        '" maxlength="6" autocomplete="off" spellcheck="false">') +
-    "</div></div>"
-  );
+  const player = prefs.players[side];
+  const cpu = prefs.mode === "solo" && side === "Player2";
+  const title = cpu ? "Computer" : prefs.mode === "local"
+    ? (side === "Player1" ? "Player 1" : "Player 2") : "Your player";
+  const initialsLabel = title === "Your player" ? "Your initials" : title + " initials";
+  const swatches = Object.entries(colors).map(([name, hex]) => `
+    <label class="swatch" title="${name}" style="--ink:${hex}">
+      <input type="radio" name="color-${side}" data-color-side="${side}" value="${name}" aria-label="${name}" ${player.color === name ? "checked" : ""}>
+      <span aria-hidden="true"></span>
+    </label>`).join("");
+  return `<section class="player-card" aria-labelledby="title-${side}">
+    <div class="player-heading">
+      <h3 id="title-${side}">${title}</h3>
+      ${cpu ? "" : `<label class="initials-field" for="${side}">Initials
+        <input id="${side}" name="${side}" data-player="${side}" aria-label="${initialsLabel}" value="${esc(player.initials)}" maxlength="6" autocomplete="off" spellcheck="false"></label>`}
+    </div>
+    <fieldset class="color-picker">
+      <legend>Choose color<span id="selected-${side}" aria-hidden="true">${player.color}</span></legend>
+      <div class="swatches">${swatches}</div>
+    </fieldset>
+  </section>`;
 }
 function stepper(key: keyof Size) {
   const n = prefs.size[key];
   return (
-    '<div class="step"><button data-step="' +
+    '<div class="step"><button type="button" data-step="' +
     key +
     '-1" aria-label="Fewer ' +
     key +
@@ -263,7 +253,7 @@ function stepper(key: keyof Size) {
     key +
     '">' +
     n +
-    '</span><button data-step="' +
+    '</span><button type="button" data-step="' +
     key +
     '+1" aria-label="More ' +
     key +
@@ -272,8 +262,46 @@ function stepper(key: keyof Size) {
     ">+</button></div>"
   );
 }
+function boardSizeFields() {
+  return '<div class="field-head"><h3>Board size</h3><span>' +
+    prefs.size.rows * prefs.size.columns +
+    ' boxes</span></div><div class="dimensions">' +
+    stepper("columns") + "<span>×</span>" + stepper("rows") + "</div>";
+}
+const roomOptions = {
+  create: { label: "Host a game", help: "Create a private room and invite a friend by code, link, or QR code.", submit: "Create private room" },
+  join: { label: "Join a friend", help: "Enter your friend’s six-character code to join their private room.", submit: "Join room" },
+  public: { label: "Public match", help: "Find another player looking for the same board size.", submit: "Find public game" },
+};
+function roomFields() {
+  const option = roomOptions[roomAction];
+  const help = roomAction === "join" && joinCode && joinCode === incomingCode
+    ? "Your invite filled in the room code. Choose your player color and join."
+    : option.help;
+  $("#room-form").innerHTML =
+    '<p class="mode-help" id="room-help">' + help + '</p>' +
+    (roomAction === "join"
+      ? '<label class="room-code-label" for="code">Room code</label><input id="code" name="room" aria-describedby="room-help" placeholder="ABC234" maxlength="6" pattern="[A-HJ-NP-Z2-9]{6}" title="Enter the six-character room code from your friend." required autocomplete="off" autocorrect="off" autocapitalize="characters" spellcheck="false" value="' + esc(joinCode) + '">'
+      : "") +
+    '<div class="player-list">' +
+    playerInput("Player1") + '</div>' +
+    (roomAction === "join" ? "" : boardSizeFields()) +
+    '<button class="primary" type="submit">' + option.submit + '</button>';
+}
 function settings() {
-  const online = prefs.mode === "online";
+  if (prefs.mode === "online") {
+    $("#settings").innerHTML =
+      '<button type="button" class="room-back plain" data-mode="' + previousMode + '">' + icon("back") + 'All modes</button>' +
+      '<h1 id="online-title" tabindex="-1">Play online</h1><fieldset class="room-options"><legend>Room options</legend><div>' +
+      Object.entries(roomOptions).map(([value, option]) =>
+        '<label><input type="radio" name="room-action" value="' + value + '"' +
+        (value === roomAction ? " checked" : "") + '><span>' + option.label + '</span></label>',
+      ).join("") +
+      '</div></fieldset><form id="room-form" aria-labelledby="online-title"></form>';
+    roomFields();
+    setBusy(working);
+    return;
+  }
   $("#settings").innerHTML =
     '<h2>New game</h2><div class="mode-tabs" role="group" aria-label="Game mode">' +
     Object.entries(modes)
@@ -291,25 +319,10 @@ function settings() {
       .join("") +
     '</div><p class="mode-help">' +
     modeHelp[prefs.mode] +
-    '</p><div class="field-head"><h3>Players</h3><span>Initials &amp; colors</span></div><div class="player-list">' +
+    '</p><div class="player-list">' +
     playerInput("Player1") +
-    (online ? "" : playerInput("Player2")) +
-    '</div><div class="field-head"><h3>Board size</h3><span>' +
-    prefs.size.rows * prefs.size.columns +
-    ' boxes</span></div><div class="dimensions">' +
-    stepper("columns") +
-    "<span>×</span>" +
-    stepper("rows") +
-    "</div>" +
-    (online
-      ? '<button class="primary" data-action="public">' +
-        icon("online") +
-        ' Find public game</button><div class="private-tools"><button class="secondary" data-action="create">Create private room</button><div><input aria-label="Room code" id="code" placeholder="Room code" maxlength="6" value="' +
-        esc(joinCode) +
-        '"><button data-action="join">Join</button></div></div>'
-      : '<button class="primary" data-action="start">' +
-        icon("start") +
-        " Start game</button>");
+    playerInput("Player2") + "</div>" + boardSizeFields() +
+    '<button class="primary" data-action="start">' + icon("start") + " Start game</button>";
   setBusy(working);
 }
 function setBusy(value: boolean) {
@@ -332,6 +345,11 @@ function setup() {
   cancelAI();
   match = undefined;
   view = undefined;
+  if (prefs.mode === "online") {
+    $("#surface").innerHTML = '<section class="room-setup panel" aria-labelledby="online-title"><div id="settings"></div><p id="room-feedback"></p></section>';
+    settings();
+    return;
+  }
   $("#surface").innerHTML =
     '<div class="setup-layout"><div class="showcase"><div class="hero-copy"><h1>Dots <em>&amp;</em> boxes<span>.</span></h1><p>Connect the dots. Close a box to claim it.</p></div><div class="art" aria-hidden="true">' +
     fallbackArt() +
@@ -367,7 +385,8 @@ function drawWaiting() {
       : r.public
         ? "Another player looking for this board size can join you."
         : "Keep this room open. Your friend can join by code, invite link, or QR.") +
-    '</p><strong class="room-code">' +
+    '</p>' + (view.notice ? '<p class="connection-note" role="status">' + esc(view.notice) + '</p>' : '') +
+    '<strong class="room-code">' +
     esc(r.code) +
     '</strong><button class="secondary" data-action="copy">Copy room code</button><div class="share-tools"><button class="secondary" data-action="link">Copy invite link</button><button class="secondary" data-action="qr">Show QR code</button></div><button class="plain" data-action="exit">Leave room</button></section>';
 }
@@ -470,8 +489,12 @@ function game() {
     " board</div>" +
     (view
       ? '<div class="transport">' +
-        (view.direct ? "PeerJS · WebRTC" : "Waiting for connection") +
-        "</div>"
+        (view.room.status === "abandoned"
+          ? "Leave this room to start another game."
+          : view.direct ? "Connected to opponent"
+          : "Keep both game tabs open. Check your internet connection if play doesn’t resume.") +
+        "</div>" +
+        (view.notice ? '<p class="connection-note" role="status">' + esc(view.notice) + '</p>' : "")
       : "") +
     (over && canRematch()
       ? '<button class="primary" data-action="again">Play again</button>'
@@ -587,12 +610,17 @@ function startLocal() {
   game();
 }
 async function online(
-  action: "create" | "join" | "public" | "restore",
+  action: RoomAction | "restore",
   code = joinCode,
 ) {
   if (working) return;
   setBusy(true);
-  notify(action === "restore" ? "Reconnecting to room…" : "Connecting…");
+  notify({
+    create: "Creating your room…",
+    join: "Connecting to your friend’s room…",
+    public: "Looking for a public match…",
+    restore: "Reconnecting to your room…",
+  }[action]);
   const token = ++roomGeneration;
   try {
     const mod = await import("./online");
@@ -612,7 +640,7 @@ async function online(
     if (hasInvite) {
       const url = new URL(location.href);
       url.searchParams.delete("room");
-      history.replaceState(null, "", url);
+      history.replaceState({ ...history.state, boxGameInvite: true }, "", url);
     }
     session.watch((v) => {
       const previous = view,
@@ -653,12 +681,9 @@ async function online(
         previous.room.status !== "finished"
       )
         result();
-    }, notify);
+    });
   } catch (e) {
-    if (action === "restore") notify("Reconnect by opening this room again.");
-    notify(
-      e instanceof Error ? e.message : "Could not open the room. Try again.",
-    );
+    notify(roomFailure(e, action));
   } finally {
     setBusy(false);
   }
@@ -674,32 +699,48 @@ async function exit() {
   setup();
   notify("");
 }
-function palette(side: Side) {
-  const p = prefs.players[side];
-  modal(
-    "Choose a color",
-    '<div class="palette">' +
-      Object.entries(colors)
-        .map(
-          ([name, hex]) =>
-            '<button data-pick="' +
-            name +
-            '" data-side="' +
-            side +
-            '" aria-pressed="' +
-            (name === p.color) +
-            '" style="--ink:' +
-            hex +
-            '"><i>' +
-            (name === p.color ? "✓" : "") +
-            "</i>" +
-            name +
-            "</button>",
-        )
-        .join("") +
-      "</div>",
-  );
-}
+document.addEventListener("change", (e) => {
+  const input = e.target;
+  if (!(input instanceof HTMLInputElement)) return;
+  if (input.name === "room-action") {
+    roomAction = input.value as RoomAction;
+    notify("");
+    roomFields();
+  } else if (input.dataset.colorSide) {
+    const side = input.dataset.colorSide as Side;
+    const opponent = other(side);
+    const color = input.value as Color;
+    if (prefs.players[opponent].color === color) {
+      const previous = prefs.players[side].color;
+      prefs.players[opponent].color = previous;
+      const swapped = document.querySelector<HTMLInputElement>(
+        `input[name="color-${opponent}"][value="${previous}"]`,
+      );
+      if (swapped) {
+        swapped.checked = true;
+        $("#selected-" + opponent).textContent = previous;
+      }
+    }
+    prefs.players[side].color = color;
+    $("#selected-" + side).textContent = color;
+    persist();
+  }
+});
+document.addEventListener("submit", (e) => {
+  if (e.target instanceof HTMLFormElement && e.target.id === "room-form") {
+    e.preventDefault();
+    void online(roomAction);
+  }
+});
+document.addEventListener("invalid", (e) => {
+  const input = e.target;
+  if (input instanceof HTMLInputElement && input.id === "code") {
+    input.setCustomValidity(roomMessages.invalidCode);
+    input.setAttribute("aria-invalid", "true");
+    input.setAttribute("aria-describedby", "room-help room-feedback");
+    notify(roomMessages.invalidCode);
+  }
+}, true);
 document.addEventListener("input", (e) => {
   const input = e.target as HTMLInputElement;
   if (input.dataset.player) {
@@ -708,6 +749,12 @@ document.addEventListener("input", (e) => {
     input.value = p.initials;
   }
   if (input.id === "code") {
+    if (input.hasAttribute("aria-invalid")) {
+      input.setCustomValidity("");
+      input.removeAttribute("aria-invalid");
+      input.setAttribute("aria-describedby", "room-help");
+      notify("");
+    }
     joinCode = input.value.toUpperCase().replace(/[^A-Z0-9]/g, "");
     input.value = joinCode;
   }
@@ -724,13 +771,19 @@ document.addEventListener("focusout", (e) => {
 document.addEventListener("click", async (e) => {
   const b = (e.target as Element).closest<HTMLButtonElement>("button");
   if (!b || b.disabled) return;
-  const { action, mode, step, color, pick, side, edge } = b.dataset;
+  const { action, mode, step, edge } = b.dataset;
   unlock();
   try {
     if (mode) {
+      const wasOnline = prefs.mode === "online";
+      if (mode === "online" && prefs.mode !== "online") previousMode = prefs.mode;
       prefs.mode = mode as Mode;
       persist();
-      settings();
+      if (wasOnline || mode === "online") {
+        notify("");
+        setup();
+        $(mode === "online" ? "#online-title" : '[data-mode="online"]').focus();
+      } else settings();
       return;
     }
     if (step) {
@@ -740,21 +793,6 @@ document.addEventListener("click", async (e) => {
         Math.max(2, prefs.size[k] + Number(step.slice(-2))),
       );
       persist();
-      settings();
-      return;
-    }
-    if (color) {
-      palette(color as Side);
-      return;
-    }
-    if (pick && side) {
-      const p = side as Side,
-        op = other(p);
-      if (prefs.players[op].color === pick)
-        prefs.players[op].color = prefs.players[p].color;
-      prefs.players[p].color = pick as Color;
-      persist();
-      close();
       settings();
       return;
     }
@@ -790,11 +828,6 @@ document.addEventListener("click", async (e) => {
         break;
       case "start":
         startLocal();
-        break;
-      case "public":
-      case "join":
-      case "create":
-        await online(action);
         break;
       case "copy":
         if (view) {
@@ -877,7 +910,7 @@ document.addEventListener("click", async (e) => {
     }
   } catch (err) {
     notify(
-      err instanceof Error
+      room ? roomFailure(err, "play") : err instanceof Error
         ? err.message
         : "Something interrupted the game. Please try again.",
     );
@@ -906,7 +939,7 @@ if (
   game();
   scheduleAI();
 } else {
+  if (peerSave) prefs.mode = "online";
   setup();
   if (peerSave && !hasInvite) void online("restore");
-  if (hasInvite) notify("Invite ready. Choose your initials and tap Join.");
 }

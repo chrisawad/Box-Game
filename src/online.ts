@@ -1,4 +1,5 @@
 import Peer, { type DataConnection, type PeerOptions } from "peerjs";
+import { RoomError, roomFailure, roomMessages } from "./room-feedback";
 import {
   colors,
   finished,
@@ -29,6 +30,7 @@ export type OnlineView = {
   direct: boolean;
   connected: boolean;
   syncing: boolean;
+  notice: string;
 };
 type Saved = { room: Room; seat: Side; ticket: string };
 type Packet = {
@@ -98,8 +100,8 @@ function openPeer(id?: string): Promise<Peer> {
     const timeout = setTimeout(
       () =>
         fail(
-          Error(
-            "The pairing service took too long. Check your connection and try again.",
+          new RoomError(
+            "The room service took too long to respond. Check your internet connection and try again.",
           ),
         ),
       14000,
@@ -146,33 +148,40 @@ async function allocateHost() {
       if (!collision(e)) throw e;
     }
   }
-  throw Error("Could not reserve a code. Try again.");
+  throw new RoomError("Couldn’t reserve a room code. Try creating the room again.");
 }
 function publicCode(peer: Peer, size: Size): Promise<string> {
   return new Promise((resolve, reject) => {
     const ch = link(peer, queueId(size), "find");
-    const end = (code?: string) => {
+    let settled = false;
+    const end = (code?: string, error?: Error) => {
+      if (settled) return;
+      settled = true;
       clearTimeout(timer);
+      peer.off("error", onError);
       ch.close();
       if (code) resolve(code);
-      else
-        reject(
-          Error("That public room just filled. Try finding a game again."),
-        );
+      else reject(error ?? new RoomError(roomMessages.publicGone));
     };
-    const timer = setTimeout(() => end(), 8000);
+    const onError = (error: Error) => end(undefined, error);
+    const timer = setTimeout(() => onError(new RoomError(
+      "The public match didn’t respond in time. Select Find public game to search again.",
+    )), 8000);
+    peer.on("error", onError);
     ch.on("data", (d) => {
       const p = packet(d);
       if (p?.type === "invite" && p.code && codeIsValid(p.code)) end(p.code);
     });
-    ch.on("error", () => end());
+    ch.on("error", onError);
+    ch.on("close", () => end());
   });
 }
 export class Session {
   private channel?: DataConnection;
   private alias?: Peer;
   private listen?: (v: OnlineView) => void;
-  private report?: (s: string) => void;
+  private serviceNotice = "";
+  private publicSearchStopped = false;
   private closed = false;
   private joined = false;
   private pending = false;
@@ -187,33 +196,39 @@ export class Session {
   ) {
     this.peer.on("connection", (ch) => this.incoming(ch));
     this.peer.on("error", (e) => {
-      if (e.type === "peer-unavailable" && this.firstJoin)
-        this.firstJoin.reject(
-          Error(
-            "Room not found. Check the code and keep the host’s game open.",
-          ),
-        );
-      else if (e.type !== "peer-unavailable" && !this.closed)
-        this.report?.(
-          "Pairing service interrupted. An open game can keep playing.",
-        );
+      if (this.closed) return;
+      if (this.firstJoin) this.firstJoin.reject(e);
+      else if (e.type !== "peer-unavailable") {
+        this.serviceNotice = roomFailure(e, "play");
+        this.reflect();
+      }
+    });
+    this.peer.on("open", () => {
+      this.serviceNotice = "";
+      this.reflect();
+      if (this.data.seat === "Player2" && this.data.room.status !== "abandoned")
+        this.dial();
     });
     this.peer.on("disconnected", () => {
-      if (!this.closed && !this.peer.destroyed)
+      if (!this.closed && !this.peer.destroyed) {
+        this.serviceNotice = this.channel?.open
+          ? "Lost contact with the room service. You can keep playing while it reconnects."
+          : "Lost contact with the room service. Keep this tab open while it reconnects. If it stays offline, check your internet connection and refresh.";
+        this.reflect();
         setTimeout(() => {
           if (!this.closed && this.peer.disconnected && !this.peer.destroyed)
             this.peer.reconnect();
         }, 1000);
+      }
     });
     window.addEventListener("pagehide", this.onPageHide);
   }
-  watch(show: (v: OnlineView) => void, error: (s: string) => void) {
+  watch(show: (v: OnlineView) => void) {
     this.listen = show;
-    this.report = error;
     this.reflect();
   }
   private reflect() {
-    if (this.closed) return;
+    if (this.closed || !this.listen) return;
     const { room, seat } = this.data;
     const connected = this.joined && !!this.channel?.open;
     room.players.player1.connected = seat === "Player1" || connected;
@@ -222,17 +237,32 @@ export class Session {
     try {
       sessionStorage.setItem(key, JSON.stringify(this.data));
     } catch {}
-    this.listen?.({
+    this.listen({
       room: structuredClone(room),
       seat,
       direct: connected,
       connected: connected || room.status === "waiting",
       syncing: this.pending,
+      notice: this.serviceNotice || (this.publicSearchStopped && room.status === "waiting" ? roomMessages.publicStopped : ""),
     });
+  }
+  stopPublicSearch() {
+    this.data.room.public = false;
+    this.publicSearchStopped = true;
+    this.reflect();
   }
   public serve(queue: Peer) {
     this.alias = queue;
-    queue.on("error", () => {});
+    const unlist = () => {
+      if (this.closed || this.alias !== queue || this.data.room.status !== "waiting") return;
+      this.alias = undefined;
+      queue.destroy();
+      this.stopPublicSearch();
+    };
+    queue.on("disconnected", unlist);
+    queue.on("error", (e) => {
+      if (e.type !== "peer-unavailable" && e.type !== "webrtc") unlist();
+    });
     queue.on("connection", (ch) => {
       if (ch.metadata?.type !== "find") {
         ch.close();
@@ -278,7 +308,7 @@ export class Session {
         ) {
           send(ch, {
             type: "reject",
-            reason: "This room already has two players.",
+            reason: this.data.room.status === "abandoned" ? "closed" : "full",
           });
           setTimeout(() => ch.close(), 250);
           return;
@@ -289,6 +319,7 @@ export class Session {
         this.channel = ch;
         previous?.close();
         this.joined = true;
+        if (!this.peer.disconnected) this.serviceNotice = "";
         this.data.ticket = p.ticket;
         const r = this.data.room;
         if (!r.players.player2) {
@@ -390,12 +421,15 @@ export class Session {
     }
   }
   private dial() {
-    if (this.closed || this.channel?.open) return;
+    if (this.closed || this.channel || this.peer.disconnected || this.peer.destroyed) return;
     const ch = link(this.peer, hostId(this.data.room.code), "join");
     this.channel = ch;
     clearTimeout(this.deadline);
     this.deadline = window.setTimeout(() => {
-      if (this.channel === ch && !this.joined) this.lost();
+      if (this.channel === ch && !this.joined) {
+        this.firstJoin?.reject(new RoomError(roomMessages.direct));
+        this.lost();
+      }
     }, 12000);
     ch.on("open", () =>
       send(ch, { type: "hello", ticket: this.data.ticket, player: this.me }),
@@ -404,7 +438,15 @@ export class Session {
       if (this.closed || this.channel !== ch) return;
       const p = packet(data);
       if (p?.type === "reject") {
-        this.firstJoin?.reject(Error("This room already has two players."));
+        const message = this.data.room.public
+          ? roomMessages.publicGone
+          : p.reason === "closed" ? roomMessages.closed : roomMessages.full;
+        if (this.firstJoin) this.firstJoin.reject(new RoomError(message));
+        else {
+          this.data.room.status = "abandoned";
+          this.serviceNotice = message;
+          this.reflect();
+        }
         return;
       }
       if (p?.type === "leave") {
@@ -421,6 +463,7 @@ export class Session {
       )
         return;
       clearTimeout(this.deadline);
+      if (!this.joined && !this.peer.disconnected) this.serviceNotice = "";
       this.joined = true;
       this.pending = false;
       this.data.room = p.room;
@@ -428,10 +471,16 @@ export class Session {
       this.firstJoin?.resolve();
     });
     ch.on("close", () => {
-      if (this.channel === ch) this.lost();
+      if (this.channel === ch) {
+        this.firstJoin?.reject(new RoomError(roomMessages.direct));
+        this.lost();
+      }
     });
-    ch.on("error", () => {
-      if (this.channel === ch) this.lost();
+    ch.on("error", (error) => {
+      if (this.channel === ch) {
+        this.firstJoin?.reject(error);
+        this.lost();
+      }
     });
   }
   async connect(resume: boolean) {
@@ -445,9 +494,7 @@ export class Session {
         this.retry = window.setTimeout(
           () =>
             reject(
-              Error(
-                "Could not connect. Keep the host’s room open and try another network if needed.",
-              ),
+              new RoomError(roomMessages.direct),
             ),
           16000,
         );
@@ -517,16 +564,15 @@ export async function enter(
   size: Size,
   code = "",
 ): Promise<Session> {
-  if (!navigator.onLine) throw Error("Connect to the internet to play online.");
+  if (!navigator.onLine) throw new RoomError(roomMessages.offline);
+  if (!isSecureContext) throw new RoomError("Online games need a secure connection. Open the HTTPS game link and try again.");
   if (typeof RTCPeerConnection === "undefined")
-    throw Error(
-      "This browser needs WebRTC for online games. Try a current browser or play locally.",
-    );
+    throw new RoomError(roomMessages.browser);
   const saved = action === "restore" ? savedRoom() : undefined;
   if (action === "restore" && !saved)
-    throw Error("Room expired. Start or join another game.");
+    throw new RoomError("Your saved room has expired. Ask your friend for a new invite, or create a room.");
   if (action === "join" && !codeIsValid(code))
-    throw Error("Enter the six-character room code.");
+    throw new RoomError(roomMessages.invalidCode);
   let peer: Peer | undefined,
     alias: Peer | undefined,
     session: Session | undefined;
@@ -556,9 +602,9 @@ export async function enter(
         }
         if (saved.room.public && saved.room.status === "waiting") {
           try {
-            alias = await openPeer(queueId(size));
-          } catch {
-            saved.room.public = false;
+            alias = await openPeer(queueId(saved.room.state.board));
+          } catch (e) {
+            if (!collision(e)) throw e;
           }
         }
       } else if (!peer) {
@@ -585,6 +631,7 @@ export async function enter(
     };
     session = new Session(peer, state, player);
     if (alias) session.serve(alias);
+    else if (host && saved?.room.public && saved.room.status === "waiting") session.stopPublicSearch();
     if (!host) await session.connect(!!saved);
     return session;
   } catch (e) {
@@ -593,8 +640,6 @@ export async function enter(
       peer?.destroy();
       alias?.destroy();
     }
-    if (collision(e))
-      throw Error("The host already has this room open in another tab.");
     throw e;
   }
 }

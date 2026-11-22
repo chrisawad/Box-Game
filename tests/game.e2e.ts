@@ -5,8 +5,12 @@ test("local game, double scoring, reload and rematch", async ({ page }) => {
   await page.getByRole("button", { name: "Local", exact: true }).click();
   await page.getByLabel("Player 1 initials").fill("AB");
   await page.getByLabel("Player 2 initials").fill("CD");
-  await page.getByRole("button", { name: "Choose player 1 color" }).click();
-  await page.getByRole("button", { name: "Teal", exact: true }).click();
+  const playerOne = page.getByRole("region", { name: "Player 1", exact: true });
+  const playerTwo = page.getByRole("region", { name: "Player 2", exact: true });
+  await playerOne.getByRole("radio", { name: "Orange", exact: true }).check();
+  await expect(playerTwo.getByRole("radio", { name: "Purple", exact: true })).toBeChecked();
+  await playerOne.getByRole("radio", { name: "Teal", exact: true }).check();
+  await expect(playerOne.locator("legend")).toHaveText("Choose colorTeal");
   for (const key of ["columns", "rows"])
     await page
       .getByRole("button", { name: "Fewer " + key })

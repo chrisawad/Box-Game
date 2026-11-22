@@ -71,12 +71,12 @@ export function mountTable(host: HTMLElement) {
       z,
     );
   }
-  block(4.78, 0.3, 4.78, 0.14, "#534295", 0, -0.16, 0);
-  block(4.76, 0.25, 4.76, 0.14, "#b1a5ee", 0, 0.015, 0);
-  block(4.61, 0.18, 4.61, 0.09, "#fffcf1", 0, 0.16, 0);
-  const indigo = "#6652db",
-    coral = "#fb754f",
-    groove = "#c9c1d9";
+  block(4.78, 0.3, 4.78, 0.14, "#38304e", 0, -0.16, 0);
+  block(4.76, 0.25, 4.76, 0.14, "#615777", 0, 0.015, 0);
+  block(4.61, 0.18, 4.61, 0.09, "#292b3c", 0, 0.16, 0);
+  const indigo = "#9270d8",
+    coral = "#e48869",
+    groove = "#5e6073";
   const filled = [
     [0, 1, indigo],
     [1, 1, indigo],
@@ -138,7 +138,7 @@ export function mountTable(host: HTMLElement) {
       piece(
         "stud",
         () => new THREE.CylinderGeometry(0.113, 0.125, 0.115, 24),
-        "#332952",
+        "#8d849e",
         x - 2,
         0.345,
         z - 2,
@@ -146,7 +146,7 @@ export function mountTable(host: HTMLElement) {
       piece(
         "cap",
         () => new THREE.CylinderGeometry(0.096, 0.108, 0.03, 24),
-        "#554971",
+        "#d6cfdf",
         x - 2,
         0.415,
         z - 2,

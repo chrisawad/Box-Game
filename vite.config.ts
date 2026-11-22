@@ -28,8 +28,8 @@ export default defineConfig({
           { platform: "webapp", url: "./manifest.webmanifest", id: relatedId },
         ],
         orientation: "any",
-        theme_color: "#e9e7fb",
-        background_color: "#e9e7fb",
+        theme_color: "#11131e",
+        background_color: "#11131e",
         icons: [
           { src: "icons/board-192.png", sizes: "192x192", type: "image/png" },
           { src: "icons/board-512.png", sizes: "512x512", type: "image/png" },

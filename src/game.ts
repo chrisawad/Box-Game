@@ -1,16 +1,16 @@
 export const colors = {
-  Red: "#e54655",
-  Blue: "#3b62df",
-  Green: "#368456",
-  Purple: "#8347c6",
-  Orange: "#da6218",
-  Pink: "#c73784",
-  Teal: "#218077",
-  Cyan: "#16839e",
-  Indigo: "#5944ba",
-  Lime: "#629125",
-  Amber: "#ac720b",
-  Slate: "#5c6c85",
+  Red: "#ff7181",
+  Orange: "#ff9968",
+  Amber: "#f3c563",
+  Lime: "#b4d970",
+  Green: "#6cd893",
+  Teal: "#62d1b8",
+  Cyan: "#63d7f0",
+  Blue: "#75a8ff",
+  Indigo: "#9192ff",
+  Purple: "#b38af2",
+  Pink: "#f28cc8",
+  Slate: "#abb9cf",
 };
 export type Color = keyof typeof colors;
 export type Side = "Player1" | "Player2";

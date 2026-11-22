@@ -3,12 +3,86 @@ import { createRequire } from "node:module";
 import type jsQR from "jsqr";
 const qrDecoder = createRequire(import.meta.url).resolve("jsqr");
 
-async function configure(p: Page, tag: string) {
+test("an invite opens the dark join screen with the room filled in and a quiet install option", async ({ page }) => {
+  await page.emulateMedia({ colorScheme: "light" });
+  await page.goto("./?room=abc234");
+  const join = page.getByRole("radio", { name: "Join a friend" });
+  const code = page.getByRole("textbox", { name: "Room code" });
+  await expect(join).toBeChecked();
+  await expect(code).toHaveValue("ABC234");
+  // Wait for installation detection, then also exercise a late eligibility event.
+  await expect(page.locator("footer #install")).toBeVisible();
+  await page.evaluate(() => window.dispatchEvent(new Event("beforeinstallprompt", { cancelable: true })));
+  await expect(page.getByRole("dialog")).toBeHidden();
+  await expect(page.getByRole("heading", { name: "Board size" })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "Join room" })).toBeInViewport();
+  await expect(page.locator("html")).toHaveCSS("color-scheme", "dark");
+  const teal = page.getByRole("radio", { name: "Teal", exact: true });
+  await teal.check();
+  await page.getByLabel("Your initials").fill("AX");
+
+  await page.getByRole("radio", { name: "Host a game" }).check();
+  await expect(page.getByRole("button", { name: "Create private room" })).toBeVisible();
+  await expect(code).toHaveCount(0);
+  await expect(page.getByRole("heading", { name: "Board size" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Find public game" })).toHaveCount(0);
+  await page.getByRole("radio", { name: "Public match" }).check();
+  await expect(page.getByRole("button", { name: "Find public game" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Create private room" })).toHaveCount(0);
+  await page.keyboard.press("ArrowLeft");
+  await expect(join).toBeFocused();
+  await expect(code).toHaveValue("ABC234");
+  await expect(teal).toBeChecked();
+  await expect(page.getByLabel("Your initials")).toHaveValue("AX");
+  await page.reload();
+  await expect(teal).toBeChecked();
+  await expect(page.locator("footer #install")).toBeVisible();
+  await expect(page.getByRole("dialog")).toBeHidden();
+
+  await page.goto("./");
+  await expect(page.getByRole("dialog", { name: "Install Box Game" })).toBeVisible();
+});
+
+async function configure(p: Page, tag: string, option = "Host a game") {
   await p.goto("./");
   await p.getByRole("button", { name: "Maybe later" }).click();
   await p.getByRole("button", { name: "Online", exact: true }).click();
+  await p.getByRole("radio", { name: option }).check();
   await p.getByLabel("Your initials").fill(tag);
 }
+test("an offline guest gets recovery advice at the Join button", async ({ page, context }) => {
+  await page.goto("./?room=ABC234");
+  const join = page.getByRole("button", { name: "Join room" });
+  const code = page.getByLabel("Room code");
+  await code.fill("A0I");
+  await join.click();
+  await expect(page.locator("#room-feedback")).toContainText("six-character room code from your friend");
+  await expect(code).toHaveAttribute("aria-invalid", "true");
+  await code.fill("ABC234");
+  await expect(page.locator("#room-feedback")).toBeEmpty();
+  await context.setOffline(true);
+  await join.click();
+  await expect(page.locator("#room-feedback")).toContainText("You’re offline. Connect to Wi-Fi or mobile data");
+  await expect(page.getByLabel("Room code")).toHaveValue("ABC234");
+  await expect(join).toBeEnabled();
+});
+
+test("a missing room and an unreachable service give different next steps", async ({ page }, info) => {
+  test.skip(!process.env.PEER_CI || info.project.name !== "desktop", "Requires isolated signaling.");
+  await page.goto("./?room=ZZZ999");
+  await page.getByRole("button", { name: "Join room" }).click();
+  const feedback = page.locator("#room-feedback");
+  await expect(feedback).toContainText("Room not found. Check the code", { timeout: 20000 });
+  await page.getByRole("radio", { name: "Host a game" }).check();
+  await expect(feedback).toBeEmpty();
+  await page.routeWebSocket(/:9108\//, socket => {
+    socket.close({ code: 1011, reason: "Test service unavailable" });
+  });
+  await page.getByRole("button", { name: "Create private room" }).click();
+  await expect(feedback).toContainText(/room service.*(internet connection|try again)/i, { timeout: 22000 });
+  await expect(feedback).not.toContainText(/peerjs|socket|chrisawad-box/i);
+});
+
 test("QR and link pair two peers, enforce seats, reconnect, finish and rematch", async ({
   browser,
   baseURL,
@@ -64,12 +138,13 @@ test("QR and link pair two peers, enforce seats, reconnect, finish and rematch",
     expect(decoded).toBe(invite);
     await x.getByRole("button", { name: "Close", exact: true }).click();
     await y.goto(invite);
-    await y.getByRole("button", { name: "Maybe later" }).click();
+    await expect(y.getByRole("radio", { name: "Join a friend" })).toBeChecked();
+    await expect(y.getByRole("dialog")).toBeHidden();
     await expect(y.getByLabel("Room code")).toHaveValue(code);
     await y.getByLabel("Your initials").fill("BY");
-    await y.getByRole("button", { name: "Join", exact: true }).click();
+    await y.getByRole("button", { name: "Join room", exact: true }).click();
     for (const p of [y, x])
-      await expect(p.locator(".transport")).toHaveText("PeerJS · WebRTC", {
+      await expect(p.locator(".transport")).toHaveText("Connected to opponent", {
         timeout: 25000,
       });
     await expect(y.locator(".edge:enabled")).toHaveCount(0);
@@ -79,6 +154,7 @@ test("QR and link pair two peers, enforce seats, reconnect, finish and rematch",
     await expect(y.locator(".edge:enabled")).toHaveCount(11, {
       timeout: 30000,
     });
+    await expect(y.getByRole("dialog")).toBeHidden();
     await y.locator(".edge:enabled").first().click();
     await expect(x.locator(".edge.owned")).toHaveCount(2);
     await x.reload();
@@ -130,14 +206,14 @@ test("public search pairs two simultaneous requests on the same board size", asy
   const x = await a.newPage(),
     y = await b.newPage();
   try {
-    await Promise.all([configure(x, "FOX"), configure(y, "OWL")]);
+    await Promise.all([configure(x, "FOX", "Public match"), configure(y, "OWL", "Public match")]);
     await Promise.all(
       [x, y].map((p) =>
         p.getByRole("button", { name: "Find public game" }).click(),
       ),
     );
     for (const p of [x, y]) {
-      await expect(p.locator(".transport")).toContainText("WebRTC", {
+      await expect(p.locator(".transport")).toHaveText("Connected to opponent", {
         timeout: 25000,
       });
       await expect(p.locator(".score")).toHaveCount(2);
@@ -167,21 +243,21 @@ test("pair code connects the guest and a third player cannot take the seat", asy
   try {
     await Promise.all([
       configure(x, "A"),
-      configure(y, "B"),
-      configure(z, "C"),
+      configure(y, "B", "Join a friend"),
+      configure(z, "C", "Join a friend"),
     ]);
     await x.getByRole("button", { name: "Create private room" }).click();
     const code = await x.locator(".room-code").innerText();
     for (const p of [y, z]) {
       await p.getByLabel("Room code").fill(code);
-      await p.getByRole("button", { name: "Join", exact: true }).click();
+      await p.getByRole("button", { name: "Join room", exact: true }).click();
       if (p === y)
-        await expect(y.locator(".transport")).toContainText("WebRTC", {
+        await expect(y.locator(".transport")).toHaveText("Connected to opponent", {
           timeout: 20000,
         });
     }
-    await expect(z.locator("#notice")).toContainText(
-      "already has two players",
+    await expect(z.locator("#room-feedback")).toContainText(
+      "This room already has two players. Ask your friend to create a new room",
       { timeout: 20000 },
     );
     await expect(x.locator(".score b").last()).toHaveText("B");
