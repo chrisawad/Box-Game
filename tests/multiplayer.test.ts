@@ -41,3 +41,45 @@ it("isolates active seats and waiting lobbies for two games sharing an origin", 
   expect(second.read()).toEqual({ seat: "Player2" });
   expect(second.waitingHost.read()?.profile).toEqual(lobby.profile);
 });
+
+it("recovers the selected room in a new window and never resurrects a seat released in another window", () => {
+  function storage() {
+    const entries = new Map<string, string>();
+    return {
+      get length() { return entries.size; },
+      key: (index: number) => [...entries.keys()][index] ?? null,
+      getItem: (key: string) => entries.get(key) ?? null,
+      setItem: (key: string, value: string) => entries.set(key, value),
+      removeItem: (key: string) => entries.delete(key),
+    };
+  }
+  const original = storage();
+  vi.stubGlobal("sessionStorage", original);
+  vi.stubGlobal("localStorage", storage());
+  vi.stubGlobal("navigator", { locks: {} });
+  const store = createRoomPersistence({ namespace: "resume",
+    isProfile: (p): p is string => typeof p === "string",
+    isSettings: (s): s is number => typeof s === "number",
+  });
+  const one = { room: { code: "ABC23", status: "active" }, seat: "Player1", ticket: "first" };
+  const two = { room: { code: "DEF45", status: "active" }, seat: "Player2", ticket: "second" };
+  store.saveMatch(one);
+  vi.stubGlobal("sessionStorage", storage());
+  expect(store.readMatch()).toEqual(one);
+  store.saveMatch(two);
+  expect(store.readMatch(one.room.code)).toEqual(one);
+  expect(store.readMatch("ZZZ99")).toBeUndefined();
+  store.forgetMatch(one);
+  expect(store.readMatch()).toEqual(two);
+  vi.stubGlobal("sessionStorage", original);
+  expect(store.readMatch(one.room.code)).toBeUndefined();
+  expect(store.readMatch(two.room.code)).toEqual(two);
+  store.saveMatch(one);
+  vi.stubGlobal("sessionStorage", storage());
+  const otherSeat = { ...one, seat: "Player2", ticket: "other-seat" };
+  store.saveMatch(otherSeat);
+  vi.stubGlobal("sessionStorage", original);
+  expect(store.readMatch(one.room.code)).toEqual(one);
+  store.forgetMatch(one);
+  expect(store.readMatch(one.room.code)).toEqual(otherSeat);
+});

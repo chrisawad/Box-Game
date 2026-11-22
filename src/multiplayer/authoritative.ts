@@ -111,9 +111,9 @@ export function createAuthoritativeMultiplayer<Player extends object, Settings, 
       rules.isState(r.state)
     );
   }
-  function savedRoom(): Saved | undefined {
+  function savedRoom(code?: string): Saved | undefined {
     try {
-      const s = store.read() as Partial<Saved> | null;
+      const s = store.readMatch(code) as Partial<Saved> | null;
       if (
         s &&
         s.room && roomOK(s.room) &&
@@ -125,8 +125,9 @@ export function createAuthoritativeMultiplayer<Player extends object, Settings, 
     } catch {}
   }
   const options = rules.peerOptions ?? { secure: true };
-  function openPeer(network: RoomNetwork, id?: string, token?: string): Promise<Peer> {
+  function openPeer(network: RoomNetwork, id?: string, token?: string, signal?: AbortSignal): Promise<Peer> {
     return new Promise((resolve, reject) => {
+      signal?.throwIfAborted();
       const settings = { ...options, config: network.config, ...(token && { token }) };
       const peer = id ? new Peer(id, settings) : new Peer(settings);
       const timeout = setTimeout(
@@ -140,12 +141,16 @@ export function createAuthoritativeMultiplayer<Player extends object, Settings, 
       );
       function fail(e: Error) {
         clearTimeout(timeout);
+        signal?.removeEventListener("abort", cancel);
         peer.destroy();
         reject(e);
       }
+      function cancel() { fail(signal!.reason); }
+      signal?.addEventListener("abort", cancel, { once: true });
       peer.once("error", fail);
       peer.once("open", () => {
         clearTimeout(timeout);
+        signal?.removeEventListener("abort", cancel);
         peer.off("error", fail);
         resolve(peer);
       });
@@ -163,6 +168,14 @@ export function createAuthoritativeMultiplayer<Player extends object, Settings, 
   }
   function collision(e: unknown) {
     return (e as { type?: string })?.type === "unavailable-id";
+  }
+  function lockSeat(save: Saved, requestHandoff = false) {
+    if (requestHandoff && !document.hidden && typeof BroadcastChannel !== "undefined") {
+      const request = new BroadcastChannel(prefix + "resume-" + save.room.code);
+      request.postMessage(save.seat);
+      request.close();
+    }
+    return holdHostLock(store.namespace, save.seat === "Player1" ? save.hostToken! : "guest-" + save.ticket);
   }
   async function allocateHost(network: RoomNetwork, token: string) {
     for (let i = 0; i < 5; i++) {
@@ -190,56 +203,166 @@ export function createAuthoritativeMultiplayer<Player extends object, Settings, 
     private channelEvents?: AbortController;
     private lastMessage = 0;
     private lobby?: HostLobby<HostSettings>;
+    private registration?: AbortController;
+    private peerEvents = new AbortController();
+    private parked = false;
+    private leaving = false;
+    private handoff?: BroadcastChannel;
     private readonly lifetime = new AbortController();
     constructor(
-      private peer: Peer,
+      private peer: Peer | undefined,
       private data: Saved,
       private me: Player,
-      private network: RoomNetwork,
+      private network: RoomNetwork | undefined,
       private progress: (message: string) => void,
-      private releaseHost?: () => void,
+      private releaseSeat?: () => void,
     ) {
-      this.peer.on("connection", (ch) => this.incoming(ch));
-      this.peer.on("error", (e) => {
-        if (this.closed) return;
-        if (!this.dialing && e.type !== "peer-unavailable" && e.type !== "webrtc") {
-          this.serviceNotice = roomFailure(e, "play");
-          this.reflect();
-        }
-      });
-      this.peer.on("open", () => {
-        this.serviceNotice = "";
-        this.reflect();
-        if (this.data.seat === "Player2" && this.data.room.status !== "abandoned")
-          void this.reconnectGuest();
-      });
-      this.peer.on("disconnected", () => {
-        if (!this.closed && !this.peer.destroyed) {
-          this.serviceNotice = this.channel?.open
-            ? "Lost contact with the room service. You can keep playing while it reconnects."
-            : "Lost contact with the room service. Keep this tab open while it reconnects. If it stays offline, check your internet connection and refresh.";
-          this.reflect();
-          setTimeout(() => {
-            if (!this.closed && this.peer.disconnected && !this.peer.destroyed)
-              this.peer.reconnect();
-          }, 1000);
-        }
-      });
+      if (peer) this.bindPeer(peer);
       const listeners = { signal: this.lifetime.signal };
-      window.addEventListener("pagehide", event => { if (!event.persisted) this.stop(); }, listeners);
+      if (typeof BroadcastChannel !== "undefined") {
+        this.handoff = new BroadcastChannel(prefix + "resume-" + data.room.code);
+        this.handoff.onmessage = event => {
+          if (event.data === data.seat && document.hidden) this.park();
+        };
+      }
+      window.addEventListener("pagehide", event => {
+        if (event.persisted) this.park();
+        else this.stop();
+      }, listeners);
+      document.addEventListener("freeze", () => this.park(), listeners);
       const resume = () => {
-        if (document.hidden || !navigator.onLine || this.closed) return;
-        if (this.peer.disconnected && !this.peer.destroyed) this.peer.reconnect();
-        else if (this.data.seat === "Player2" && this.data.room.status !== "abandoned") void this.reconnectGuest();
+        if (document.hidden || this.closed) return;
+        this.parked = false;
+        this.lastMessage = performance.now();
+        void this.recover();
       };
       window.addEventListener("online", resume, listeners);
       window.addEventListener("pageshow", resume, listeners);
       document.addEventListener("resume", resume, listeners);
       document.addEventListener("visibilitychange", resume, listeners);
     }
+    private bindPeer(peer: Peer) {
+      peer.on("connection", ch => {
+        if (this.peer === peer) this.incoming(ch);
+        else ch.close();
+      });
+      peer.on("error", (e) => {
+        if (this.closed || this.peer !== peer) return;
+        if (!this.dialing && e.type !== "peer-unavailable" && e.type !== "webrtc") {
+          this.serviceNotice = roomFailure(e, "play");
+          this.reflect();
+        }
+      });
+      peer.on("open", () => {
+        if (this.closed || this.peer !== peer) return;
+        this.serviceNotice = "";
+        this.reflect();
+        if (this.data.seat === "Player2" && this.data.room.status !== "abandoned")
+          void this.reconnectGuest();
+      });
+      peer.on("disconnected", () => {
+        if (!this.closed && this.peer === peer) {
+          this.serviceNotice = this.channel?.open
+            ? "Lost contact with the room service. You can keep playing while it reconnects."
+            : "Lost contact with the room service. Keep this tab open while it reconnects. If it stays offline, check your internet connection and refresh.";
+          this.reflect();
+          this.retryRecovery();
+        }
+      });
+      peer.on("close", () => {
+        if (this.peer === peer && !this.closed) this.retryRecovery();
+      });
+    }
+    private retryRecovery() {
+      clearTimeout(this.retry);
+      if (!this.closed && !this.parked && this.data.room.status !== "abandoned")
+        this.retry = window.setTimeout(() => void this.recover(), 2000);
+    }
+    private detach() {
+      const peer = this.peer;
+      this.peer = undefined;
+      this.registration?.abort();
+      this.registration = undefined;
+      this.peerEvents.abort();
+      this.peerEvents = new AbortController();
+      this.channelEvents?.abort();
+      const ch = this.channel;
+      this.channel = undefined;
+      this.joined = this.pending = this.dialing = false;
+      this.route = "unknown";
+      ch?.close();
+      peer?.destroy();
+    }
+    private park() {
+      if (this.closed || this.parked || !this.data.room.players.player2 || this.data.room.status === "abandoned") return;
+      this.parked = true;
+      clearTimeout(this.retry);
+      this.detach();
+      this.reflect();
+      this.releaseSeat?.();
+      this.releaseSeat = undefined;
+    }
+    private async recover() {
+      if (this.closed || this.parked || document.hidden || this.data.room.status === "abandoned" || this.registration) return;
+      if (!navigator.onLine) {
+        this.serviceNotice = "Your board is saved. Reconnecting when you’re back online.";
+        this.reflect();
+        return;
+      }
+      if (this.peer && !this.peer.destroyed) {
+        if (!this.peer.disconnected) {
+          if (this.data.seat === "Player2") await this.reconnectGuest();
+          return;
+        }
+        if (this.channel?.open || !this.data.room.players.player2) {
+          try { this.peer.reconnect(); } catch { this.retryRecovery(); }
+          return;
+        }
+      }
+      if (!this.data.room.players.player2) return;
+      this.detach();
+      const attempt = new AbortController();
+      this.registration = attempt;
+      try {
+        if (!this.releaseSeat) {
+          const release = await lockSeat(this.data, true);
+          if (attempt.signal.aborted) { release(); return; }
+          this.releaseSeat = release;
+          const latest = savedRoom(this.data.room.code);
+          if (!latest || latest.ticket !== this.data.ticket || latest.seat !== this.data.seat) {
+            this.data.room.status = "abandoned";
+            this.reflect();
+            return;
+          }
+          this.data = latest;
+        }
+        this.network = await prepareNetwork(rules.relayUrl, attempt.signal);
+        attempt.signal.throwIfAborted();
+        const host = this.data.seat === "Player1";
+        const peer = await openPeer(this.network, host ? hostId(this.data.room.code) : undefined,
+          host ? this.data.hostToken : undefined, attempt.signal);
+        if (attempt.signal.aborted) { peer.destroy(); return; }
+        this.peer = peer;
+        this.bindPeer(peer);
+        this.serviceNotice = "";
+        this.reflect();
+        if (!host) await this.reconnectGuest();
+      } catch (error) {
+        if (!attempt.signal.aborted) {
+          this.serviceNotice = collision(error)
+            ? "Your board is saved. Reopening the room as soon as the previous connection closes."
+            : "Your board is saved. " + roomFailure(error, "restore");
+          this.reflect();
+          this.retryRecovery();
+        }
+      } finally {
+        if (this.registration === attempt) this.registration = undefined;
+      }
+    }
     watch(show: (v: OnlineView) => void) {
       this.listen = show;
       this.reflect();
+      if (!this.peer) void this.recover();
     }
     private reflect() {
       if (this.closed || !this.listen) return;
@@ -256,7 +379,10 @@ export function createAuthoritativeMultiplayer<Player extends object, Settings, 
         waitingHost.forget(this.lobby);
         this.lobby = undefined;
       }
-      store.remember(this.data);
+      if (this.releaseSeat && !this.leaving) {
+        if (room.status === "abandoned") store.forgetMatch(this.data);
+        else store.saveMatch(this.data);
+      }
       this.listen({
         room: structuredClone(room),
         seat,
@@ -297,6 +423,7 @@ export function createAuthoritativeMultiplayer<Player extends object, Settings, 
       });
     }
     private incoming(ch: DataConnection) {
+      const peer = this.peer;
       if (
         this.closed ||
         this.data.seat !== "Player1" ||
@@ -313,6 +440,7 @@ export function createAuthoritativeMultiplayer<Player extends object, Settings, 
         timeout = setTimeout(() => ch.close(), 8000);
       });
       ch.on("data", (d) => {
+        if (this.closed || this.parked || this.peer !== peer) return;
         const p = packet(d);
         if (!p) return;
         if (!accepted) {
@@ -341,7 +469,7 @@ export function createAuthoritativeMultiplayer<Player extends object, Settings, 
           this.channel = ch;
           previous?.close();
           this.joined = true;
-          if (!this.peer.disconnected) this.serviceNotice = "";
+          if (!this.peer?.disconnected) this.serviceNotice = "";
           this.data.ticket = p.ticket;
           const r = this.data.room;
           if (p.mutualRematch === true) r.rematchVotes ??= [false, false];
@@ -427,7 +555,7 @@ export function createAuthoritativeMultiplayer<Player extends object, Settings, 
       const timer = window.setInterval(() => {
         if (this.data.room.status === "abandoned") return;
         if (heartbeat) {
-          if (performance.now() - this.lastMessage > 25000) { this.lost(); return; }
+          if (!document.hidden && performance.now() - this.lastMessage > 25000) { this.lost(); return; }
           send(ch, { type: "ping" });
         }
         void refresh();
@@ -443,13 +571,13 @@ export function createAuthoritativeMultiplayer<Player extends object, Settings, 
       this.pending = false;
       old?.close();
       this.reflect();
-      if (!this.closed && this.data.seat === "Player2" && this.data.room.status !== "abandoned") {
-        clearTimeout(this.retry);
-        this.retry = window.setTimeout(() => void this.reconnectGuest(), 2000);
+      if (this.data.seat === "Player2" || !this.peer?.open) {
+        this.retryRecovery();
       }
     }
     private async dial() {
-      if (this.closed || this.channel || this.dialing) return;
+      const peer = this.peer;
+      if (this.closed || this.channel || this.dialing || !peer || !this.network) return;
       this.dialing = true;
       const receive = (data: unknown) => {
         const p = packet(data);
@@ -465,15 +593,15 @@ export function createAuthoritativeMultiplayer<Player extends object, Settings, 
         }
       };
       try {
-        const { channel, reply } = await connectRoom(this.peer, hostId(this.data.room.code), protocol, "join",
-          this.network, this.lifetime.signal, {
+        const { channel, reply } = await connectRoom(peer, hostId(this.data.room.code), protocol, "join",
+          this.network, this.peerEvents.signal, {
             open: ch => send(ch, { type: "hello", ticket: this.data.ticket, player: this.me, heartbeat: true, mutualRematch: true }),
             receive,
           }, message => {
             if (this.listen) { this.serviceNotice = message; this.reflect(); }
             else this.progress(message);
           });
-        if (this.closed) { channel.close(); return; }
+        if (this.closed || this.peer !== peer) { channel.close(); return; }
         this.channel = channel;
         this.joined = true;
         this.pending = false;
@@ -497,13 +625,14 @@ export function createAuthoritativeMultiplayer<Player extends object, Settings, 
         channel.on("close", ended);
         channel.on("error", ended);
         this.reflect();
-      } finally { this.dialing = false; }
+      } finally { if (this.peer === peer) this.dialing = false; }
     }
     private async reconnectGuest() {
-      if (this.closed || this.peer.disconnected || this.peer.destroyed) return;
+      const peer = this.peer;
+      if (this.closed || !peer || peer.disconnected || peer.destroyed) return;
       try { await this.dial(); }
       catch (error) {
-        if (this.closed) return;
+        if (this.closed || this.peer !== peer) return;
         if (error instanceof RoomError && [roomMessages.closed, roomMessages.full, roomMessages.publicGone].includes(error.message)) {
           this.data.room.status = "abandoned";
           this.serviceNotice = error.message;
@@ -558,7 +687,8 @@ export function createAuthoritativeMultiplayer<Player extends object, Settings, 
       } else send(this.channel, { type: "rematch", round: r.round });
     }
     async leave() {
-      store.clear();
+      this.leaving = true;
+      if (this.releaseSeat) store.forgetMatch(this.data);
       try {
         send(this.channel, { type: "leave" });
         await sleep(100);
@@ -567,7 +697,6 @@ export function createAuthoritativeMultiplayer<Player extends object, Settings, 
       } finally {
         this.stop();
         if (this.lobby) waitingHost.forget(this.lobby);
-        store.clear();
       }
     }
     stop() {
@@ -575,11 +704,11 @@ export function createAuthoritativeMultiplayer<Player extends object, Settings, 
       this.closed = true;
       clearTimeout(this.retry);
       this.lifetime.abort();
-      this.channelEvents?.abort();
       this.alias?.destroy();
-      this.channel?.close();
-      this.peer.destroy();
-      this.releaseHost?.();
+      this.detach();
+      this.handoff?.close();
+      this.releaseSeat?.();
+      this.releaseSeat = undefined;
     }
   }
   async function enter(
@@ -589,32 +718,43 @@ export function createAuthoritativeMultiplayer<Player extends object, Settings, 
     code = "",
     progress: (message: string) => void = () => {},
   ): Promise<MatchSession<Player, State, Move>> {
-    if (!navigator.onLine) throw new RoomError(roomMessages.offline);
     if (!isSecureContext) throw new RoomError("Online games need a secure connection. Open the HTTPS game link and try again.");
     if (typeof RTCPeerConnection === "undefined")
       throw new RoomError(roomMessages.browser);
-    let saved = action === "restore" ? savedRoom() : undefined;
+    if (action === "join" && !isRoomCode(code)) throw new RoomError(roomMessages.invalidCode);
+    let saved = action === "restore" ? savedRoom(code || undefined) : action === "join" ? savedRoom(code) : undefined;
+    if (saved?.room.players.player2) {
+      if (saved.seat === "Player1") saved.hostToken ??= crypto.randomUUID();
+      const release = await lockSeat(saved, true);
+      const latest = savedRoom(saved.room.code);
+      if (!latest || latest.ticket !== saved.ticket || latest.seat !== saved.seat) {
+        release();
+        throw new RoomError(roomMessages.closed);
+      }
+      latest.hostToken = saved.hostToken;
+      const profile = latest.seat === "Player2" ? latest.room.players.player2! : latest.room.players.player1;
+      return new Session(undefined, latest, profile, undefined, progress, release);
+    }
+    if (!navigator.onLine) throw new RoomError(roomMessages.offline);
     if (action === "restore" && !saved) {
       const lobby = waitingHost.read();
-      if (lobby) saved = { seat: "Player1", ticket: "", hostToken: lobby.token,
+      if (lobby && (!code || code === lobby.code)) saved = { seat: "Player1", ticket: "", hostToken: lobby.token,
         room: waitingRoom(lobby.code, lobby.profile.public, lobby.profile.player, lobby.profile.size) };
     }
     if (action === "restore" && !saved)
       throw new RoomError("Your saved room has expired. Ask your friend for a new invite, or create a room.");
-    if (action === "join" && !isRoomCode(code))
-      throw new RoomError(roomMessages.invalidCode);
     let peer: Peer | undefined,
       alias: Peer | undefined,
       session: Session | undefined;
     const hostToken = navigator.locks && saved?.hostToken && /^[a-f0-9-]{36}$/i.test(saved.hostToken)
       ? saved.hostToken : crypto.randomUUID();
-    let releaseHost: (() => void) | undefined;
+    let releaseSeat: (() => void) | undefined;
     const setup = new AbortController();
     const cancel = () => setup.abort();
     window.addEventListener("pagehide", cancel, { once: true });
     try {
       if (action === "public" || action === "create" || saved?.seat === "Player1")
-        releaseHost = await holdHostLock(store.namespace, hostToken);
+        releaseSeat = await holdHostLock(store.namespace, hostToken);
       const network = await prepareNetwork(rules.relayUrl, setup.signal);
       setup.signal.throwIfAborted();
       if (action === "public") {
@@ -672,8 +812,12 @@ export function createAuthoritativeMultiplayer<Player extends object, Settings, 
         room: waitingRoom(code, action === "public", player, size),
       };
       if (host) state.hostToken = hostToken;
+      else {
+        releaseSeat?.();
+        releaseSeat = await lockSeat(state);
+      }
       setup.signal.throwIfAborted();
-      session = new Session(peer, state, player, network, progress, releaseHost);
+      session = new Session(peer, state, player, network, progress, releaseSeat);
       if (alias) session.serve(alias);
       else if (host && saved?.room.public && saved.room.status === "waiting") session.stopPublicSearch();
       if (!host) await session.connect(!!saved);
@@ -683,7 +827,7 @@ export function createAuthoritativeMultiplayer<Player extends object, Settings, 
       else {
         peer?.destroy();
         alias?.destroy();
-        releaseHost?.();
+        releaseSeat?.();
       }
       throw e;
     } finally {

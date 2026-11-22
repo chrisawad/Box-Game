@@ -24,7 +24,7 @@ import { installInstructions, setupInstall } from "./install";
 import { createWinCelebration } from "./celebration";
 import { createWinAudio } from "./win-audio";
 import type { OnlineView, Session } from "./online";
-import { clearRoom, codes, roomStorageKey, waitingHost } from "./room-storage";
+import { clearRoom, codes, roomStore, waitingHost } from "./room-storage";
 import { drawInviteQR, inviteURL, shareInvite } from "./multiplayer/invite";
 import { roomFailure, roomMessages, type RoomOperation } from "./room-feedback";
 const { isRoomCode } = codes;
@@ -77,6 +77,7 @@ const incomingCode = new URL(location.href).searchParams.get("room")?.trim().toU
 const hasInvite = incomingCode !== undefined;
 // Keep an invited guest's refresh quiet after joining removes the room query.
 const inviteVisit = hasInvite || history.state?.boxGameInvite === true;
+const resumeCode = history.state?.setupAfterUpdate ? undefined : savedMatchCode(hasInvite ? incomingCode : undefined);
 let previousMode: "solo" | "local" = prefs.mode === "local" ? "local" : "solo";
 type RoomAction = Exclude<RoomOperation, "restore" | "play">;
 let roomAction: RoomAction = hasInvite ? "join" : "create";
@@ -197,7 +198,7 @@ function offerPendingPrompt() {
     if (!updateShown && !dialog.open) showUpdate();
     return;
   }
-  if (inviteVisit || popupShown || installBanner.hidden || dialog.open) return;
+  if (inviteVisit || resumeCode || popupShown || installBanner.hidden || dialog.open) return;
   modal(
     "Install Box Game",
     '<p>Add Box Game to your home screen to play solo or with someone beside you, even offline.</p><div class="dialog-actions"><button class="primary" data-action="install" autofocus>' +
@@ -352,6 +353,7 @@ function roomFields() {
 }
 function settings() {
   if (prefs.mode === "online") {
+    const resumeCode = savedMatchCode(hasInvite ? incomingCode : undefined);
     $("#settings").innerHTML =
       '<button type="button" class="room-back plain" data-mode="' + previousMode + '">' + icon("back") + 'All modes</button>' +
       '<h1 id="online-title" tabindex="-1">Play online</h1><fieldset class="room-options"><legend>Room options</legend><div>' +
@@ -359,7 +361,8 @@ function settings() {
         '<label><input type="radio" name="room-action" value="' + value + '"' +
         (value === roomAction ? " checked" : "") + '><span>' + option.label + '</span></label>',
       ).join("") +
-      '</div></fieldset><form id="room-form" aria-labelledby="online-title"></form>';
+      '</div></fieldset><form id="room-form" aria-labelledby="online-title"></form>' +
+      (resumeCode ? '<button class="secondary" data-action="resume-room" data-room="' + esc(resumeCode) + '">Resume room ' + esc(resumeCode) + '</button>' : "");
     roomFields();
     setBusy(working);
     return;
@@ -570,7 +573,7 @@ function game() {
         (view.room.status === "abandoned"
           ? "Leave this room to start another game."
           : view.connected ? "Connected to opponent"
-          : "Keep both game tabs open. Check your internet connection if play doesn’t resume.") +
+          : "Your board is saved. Play resumes when both players reconnect.") +
         "</div>" + (view.connected && view.room.status !== "abandoned" && view.route !== "unknown"
           ? '<span class="connection-route">' + (view.route === "relay" ? "Via relay" : "Direct") + "</span>" : "") +
         (view.notice ? '<p class="connection-note" role="status">' + esc(view.notice) + '</p>' : "")
@@ -715,7 +718,7 @@ async function online(
       return;
     }
     room = session;
-    save("match", null);
+    if (action !== "restore") save("match", null);
     notify("");
     if (hasInvite) {
       const url = new URL(location.href);
@@ -948,6 +951,9 @@ document.addEventListener("click", async (e) => {
         if (room) await room.rematch();
         else startLocal();
         break;
+      case "resume-room":
+        await online("restore", b.dataset.room);
+        break;
       case "exit":
         if (
           screen === "waiting" ||
@@ -993,16 +999,19 @@ async function shareGame() {
     esc(url) + '"><a class="primary" href="' + esc(email) + '" autofocus>Share by email</a>',
   );
 }
-const saved = history.state?.setupAfterUpdate ? undefined : read<Match>("match");
-if (history.state?.setupAfterUpdate) {
+function savedMatchCode(code?: string) {
+  const record = roomStore.readMatch(code) as { room?: { code?: string; status?: string } } | undefined;
+  const room = record?.room;
+  return room?.code && isRoomCode(room.code) && (room.status === "active" || room.status === "finished") ? room.code : undefined;
+}
+const afterUpdate = history.state?.setupAfterUpdate;
+const saved = afterUpdate ? undefined : read<Match>("match");
+if (afterUpdate) {
   const state = { ...history.state };
   delete state.setupAfterUpdate;
   history.replaceState(state, "");
 }
-let peerSave = false;
-try {
-  peerSave = !!sessionStorage.getItem(roomStorageKey) || !!waitingHost.read();
-} catch {}
+const peerSave = !afterUpdate && (resumeCode || (!hasInvite && (roomStore.readMatch() || waitingHost.read())));
 if (
   !hasInvite &&
   !peerSave &&
@@ -1018,5 +1027,5 @@ if (
 } else {
   if (peerSave) prefs.mode = "online";
   setup();
-  if (peerSave && !hasInvite) void online("restore");
+  if (peerSave) void online("restore", resumeCode ?? "");
 }
