@@ -1,8 +1,31 @@
 import { afterEach, expect, it, vi } from "vitest";
+import { EventEmitter } from "node:events";
 import { createRoomCodes, inviteURL, readInviteCode } from "../src/multiplayer/invite";
 import { createRoomPersistence } from "../src/multiplayer/persistence";
+import { openPeerRoom } from "../src/multiplayer/room";
+
+const { register } = vi.hoisted(() => ({ register: vi.fn() }));
+vi.mock("peerjs", () => ({
+  util: { defaultConfig: { iceServers: [] } },
+  Peer: class { constructor() { return register(); } },
+}));
 
 afterEach(() => vi.unstubAllGlobals());
+
+it("listens for registration immediately when reopening an action room with default connection settings", () => {
+  vi.stubGlobal("window", Object.assign(new EventTarget(), { setTimeout, clearTimeout, clearInterval }));
+  vi.stubGlobal("navigator", { onLine: true });
+  const peer = Object.assign(new EventEmitter(), { destroy: vi.fn() });
+  register.mockReturnValue(peer);
+  const waiting = vi.fn();
+  const room = openPeerRoom({
+    namespace: "counter", isProfile: (value): value is string => typeof value === "string", parseAction: () => null,
+  }, "Amy", null, { waiting, start: vi.fn(), action: vi.fn(), failure: vi.fn() }, { code: "ABC23" });
+  try {
+    peer.emit("open");
+    expect(waiting).toHaveBeenCalledWith("ABC23", expect.any(String));
+  } finally { room.close(); }
+});
 
 it("keeps five-character invites compatible and supports a second game's code format", () => {
   const codes = createRoomCodes(6);

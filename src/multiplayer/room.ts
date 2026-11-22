@@ -267,9 +267,11 @@ export function openPeerRoom<Profile, Action extends object>(
   const roomCode = code ?? restored?.code ?? generateCode();
   async function prepareRoom() {
     cancelTimeout();
-    const network = await prepareNetwork(game.relayUrl, listeners.signal);
-    relayUnavailable = network.unavailable;
-    rtcConfig = network.config;
+    if (game.relayUrl) {
+      const network = await prepareNetwork(game.relayUrl, listeners.signal);
+      relayUnavailable = network.unavailable;
+      rtcConfig = network.config;
+    }
     if (!closed) {
       try { register(roomCode); }
       catch { fail('The browser couldn’t start the game connection. Refresh the game and try again.'); }
