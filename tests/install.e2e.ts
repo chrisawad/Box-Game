@@ -1,4 +1,12 @@
-import { expect, test } from "@playwright/test";
+import { expect, test, type Page } from "@playwright/test";
+
+async function openInstallHelp(page: Page) {
+  await page.getByRole("button", { name: "Help", exact: true }).click();
+  await page.getByRole("button", { name: "How to install" }).click();
+  const guide = page.getByRole("dialog", { name: "How to install" });
+  await expect(guide.getByLabel("Game link", { exact: true })).toHaveValue("https://boxes.chrisawad.com/");
+  return guide;
+}
 
 test("dismissing the popup leaves a working install banner during a match", async ({ page }) => {
   await page.addInitScript(() => {
@@ -23,8 +31,9 @@ test("dismissing the popup leaves a working install banner during a match", asyn
   const banner = page.getByRole("complementary", { name: "Install Box Game" });
   await expect(banner).toBeInViewport();
   await banner.getByRole("button", { name: "Install game" }).click();
-  await expect(popup).toContainText("browser’s menu");
-  await popup.getByRole("button", { name: "Close" }).click();
+  const guide = page.getByRole("dialog", { name: "How to install" });
+  await expect(guide.getByRole("button", { name: "Copy game link" })).toBeVisible();
+  await guide.getByRole("button", { name: "Close" }).click();
   await banner.getByRole("button", { name: "Dismiss install offer" }).click();
   await expect(page.locator("#install-wrap .install-copy")).toBeHidden();
   await expect(page.locator("footer #install")).toBeVisible();
@@ -75,6 +84,7 @@ test("an installed home-screen launch can play immediately", async ({ page }) =>
   await expect(icon).toBeInViewport();
   await expect(page.getByRole("dialog")).toBeHidden();
   await expect(page.locator("#install-wrap")).toBeHidden();
+  await openInstallHelp(page);
 });
 
 test("waits for the browser to identify an already-installed copy", async ({ page }) => {
@@ -98,6 +108,9 @@ test("waits for the browser to identify an already-installed copy", async ({ pag
   await page.getByRole("button", { name: "Start game" }).click();
   await expect(page.locator("#install-wrap")).toBeHidden();
   await expect(page.getByRole("dialog")).toBeHidden();
+  const guide = await openInstallHelp(page);
+  await page.evaluate(() => window.dispatchEvent(new Event("appinstalled")));
+  await expect(guide).toBeVisible();
 });
 
 test("installing elsewhere closes an open offer and persists across reloads", async ({ page }) => {
@@ -115,12 +128,56 @@ test("installing elsewhere closes an open offer and persists across reloads", as
   await expect(page.getByRole("dialog")).toBeHidden();
   await expect(page.locator("#install-wrap")).toBeHidden();
   await page.reload();
-  await page.getByRole("button", { name: "How to play" }).click();
+  await page.getByRole("button", { name: "Help", exact: true }).click();
   await expect(page.locator("#install-wrap")).toBeHidden();
   await page.evaluate(() => window.dispatchEvent(new Event("appinstalled")));
-  await expect(page.getByRole("dialog", { name: "How to play" })).toBeVisible();
+  await expect(page.getByRole("dialog", { name: "Game help" })).toBeVisible();
   await page.getByRole("button", { name: "Got it" }).click();
   await page.evaluate(() => window.dispatchEvent(new Event("beforeinstallprompt", { cancelable: true })));
   await expect(page.locator("#install-wrap")).toBeVisible();
   await expect(page.getByRole("dialog")).toBeHidden();
+});
+
+test.describe("Android in-app browser", () => {
+  test.use({ userAgent: "Mozilla/5.0 (Linux; Android 15; Pixel; wv) AppleWebKit/537.36 Chrome/140.0.0.0 Mobile Safari/537.36" });
+  test("manual help opens without a native prompt, with a selectable link if copying is denied", async ({ page }) => {
+    await page.addInitScript(() => {
+      Object.defineProperty(navigator, "install", { value: undefined });
+      Object.defineProperty(navigator, "getInstalledRelatedApps", { value: undefined });
+      Object.defineProperty(navigator, "clipboard", { value: { writeText: async () => { throw new Error("denied"); } } });
+      window.addEventListener("beforeinstallprompt", e => {
+        e.preventDefault();
+        e.stopImmediatePropagation();
+      }, { capture: true });
+    });
+    await page.goto("./");
+    await page.getByRole("button", { name: "Maybe later" }).click();
+    const guide = await openInstallHelp(page);
+    for (const text of ["Open in Chrome", "paste the link", "Add to Home screen", "app drawer", "Box Game"])
+      await expect(guide).toContainText(text);
+    await guide.getByRole("button", { name: "Copy game link" }).click();
+    await expect(guide.getByRole("status")).toContainText("highlighted game link");
+    const field = guide.getByLabel("Game link", { exact: true });
+    await expect(field).toBeFocused();
+    expect(await field.evaluate((input: HTMLInputElement) => input.value.slice(input.selectionStart!, input.selectionEnd!))).toBe("https://boxes.chrisawad.com/");
+  });
+});
+
+test.describe("iPhone", () => {
+  test.use({ userAgent: "Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 Version/18.0 Mobile/15E148 Safari/604.1" });
+  test("an unavailable install API opens Safari instructions and copies the public link", async ({ page }) => {
+    await page.addInitScript(() => {
+      Object.defineProperty(navigator, "install", { value: async () => { throw new DOMException("Unavailable", "NotSupportedError"); } });
+      Object.defineProperty(navigator, "clipboard", { value: { writeText: async (url: string) => sessionStorage.setItem("copied", url) } });
+    });
+    await page.goto("./");
+    await page.getByRole("dialog").getByRole("button", { name: "Install game" }).click();
+    const guide = page.getByRole("dialog", { name: "How to install" });
+    await expect(guide).toContainText("Safari");
+    await expect(guide).toContainText("Add to Home Screen");
+    await expect(guide).not.toContainText("app drawer");
+    await guide.getByRole("button", { name: "Copy game link" }).click();
+    await expect(guide.getByRole("status")).toHaveText("Game link copied.");
+    expect(await page.evaluate(() => sessionStorage.getItem("copied"))).toBe("https://boxes.chrisawad.com/");
+  });
 });

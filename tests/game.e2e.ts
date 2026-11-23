@@ -79,7 +79,7 @@ test("computer responds, local match resumes offline, and installation respects 
 test("install guidance, help and a rectangular game", async ({ page }) => {
   await page.goto("./");
   await page.getByRole("button", { name: "Maybe later" }).click();
-  await page.getByRole("button", { name: "How to play" }).click();
+  await page.getByRole("button", { name: "Help", exact: true }).click();
   await expect(page.getByRole("dialog")).toContainText("fourth side");
   await page.getByRole("button", { name: "Got it" }).click();
   await page.getByRole("button", { name: "More columns" }).click();

@@ -141,9 +141,9 @@ app.innerHTML =
   '<span>Box Game<span class="period">.</span></span></div><nav><button class="round" id="update" aria-label="Game update available" title="Game update available" aria-haspopup="dialog" aria-controls="dialog" hidden>' +
   icon("install") +
   '</button><button class="plain share-button" data-action="share" aria-label="Share" title="Share">' +
-  icon("share") + '<span>Share</span></button><button class="plain help-button" data-action="help" aria-label="How to play" title="How to play">' +
+  icon("share") + '<span>Share</span></button><button class="plain help-button" data-action="help" aria-label="Help" title="Help" aria-haspopup="dialog">' +
   icon("help") +
-  '<span>How to play</span></button><button class="round" id="sound" data-action="sound"></button></nav></header><aside id="install-wrap" class="offer" aria-label="Install Box Game" hidden><div class="install-copy"><b>Install Box Game</b><small>Play solo or local games offline.</small></div><button class="install" id="install">' +
+  '<span>Help</span></button><button class="round" id="sound" data-action="sound"></button></nav></header><aside id="install-wrap" class="offer" aria-label="Install Box Game" hidden><div class="install-copy"><b>Install Box Game</b><small>Play solo or local games offline.</small></div><button class="install" id="install">' +
   icon("install") +
   ' Install game</button><button id="skip-install" class="round" aria-label="Dismiss install offer">' +
   icon("close") +
@@ -218,9 +218,16 @@ function offerPendingPrompt() {
   } catch {}
 }
 dialog.addEventListener("close", offerPendingPrompt);
+function showInstallHelp() {
+  modal("How to install", installInstructions() +
+    `<label class="install-link-label" for="install-game-link">Game link</label>
+    <input class="share-url" id="install-game-link" value="${esc(publicGameURL)}" readonly>
+    <button class="plain" data-action="copy-game-link">${icon("link")}Copy game link</button>
+    <p role="status" id="install-copy-status"></p>`);
+}
 const installFlow = setupInstall(
   $<HTMLButtonElement>("#install"),
-  () => modal("Install Box Game", installInstructions(), "install-dialog"),
+  showInstallHelp,
   notify,
   () => $<HTMLButtonElement>(".help-button").focus(),
   (installed) => {
@@ -920,10 +927,27 @@ document.addEventListener("click", async (e) => {
         break;
       case "help":
         modal(
-          "How to play",
-          '<ol class="rules"><li><strong>Draw one line.</strong><p>Tap the space between two neighboring dots.</p></li><li><strong>Close a box.</strong><p>The fourth side claims the box for you, even if your opponent drew the other three. Take another turn.</p></li><li><strong>Claim the most boxes.</strong><p>When the board is full, the higher score wins.</p></li></ol><button class="primary" data-action="close">Got it</button>',
+          "Game help",
+          '<button class="plain" data-action="install-help">' + icon("install") +
+          'How to install</button><h3 class="help-rules-title">How to play</h3><ol class="rules"><li><strong>Draw one line.</strong><p>Tap the space between two neighboring dots.</p></li><li><strong>Close a box.</strong><p>The fourth side claims the box for you, even if your opponent drew the other three. Take another turn.</p></li><li><strong>Claim the most boxes.</strong><p>When the board is full, the higher score wins.</p></li></ol><button class="primary" data-action="close">Got it</button>',
         );
         break;
+      case "install-help":
+        showInstallHelp();
+        break;
+      case "copy-game-link": {
+        const field = $<HTMLInputElement>("#install-game-link");
+        const feedback = $("#install-copy-status");
+        try {
+          await navigator.clipboard.writeText(publicGameURL);
+          feedback.textContent = "Game link copied.";
+        } catch {
+          field.focus();
+          field.select();
+          feedback.textContent = "Select Copy to copy the highlighted game link.";
+        }
+        break;
+      }
       case "sound":
         prefs.sound = !prefs.sound;
         persist();

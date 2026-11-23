@@ -1017,6 +1017,12 @@ dialog::backdrop {
   padding-left: 23px;
   margin: 0 0 20px;
 }
+.help-rules-title, .install-link-label {
+  display: block;
+  margin: 16px 0 6px;
+  font-weight: 700;
+}
+#install-copy-status:not(:empty) { margin-top: 8px; }
 .rules li {
   padding-left: 4px;
   margin-bottom: 13px;

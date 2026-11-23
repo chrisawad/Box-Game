@@ -97,8 +97,7 @@ export function setupInstall(
   });
   const request = async () => {
     if (isInstalled() || button.getAttribute("aria-disabled") === "true") return;
-    // The always-visible game action has a real help flow when prompting is
-    // unavailable. Call supported install APIs directly in this user gesture.
+    // Call supported install APIs directly in this user gesture.
     if (!isSecureContext || (!nav.install && !prompt)) {
       help();
       return;
@@ -115,10 +114,10 @@ export function setupInstall(
         if ((await pending.userChoice).outcome === "accepted") remember(true);
         else status("Installation canceled. You can install later.");
       }
-    } catch {
-      status(
-        "Installation did not complete. Try again or use your browser’s install menu.",
-      );
+    } catch (error) {
+      if (error instanceof Error && error.name === "AbortError")
+        status("Installation canceled. You can install later.");
+      else help();
     } finally {
       button.removeAttribute("aria-disabled");
       reflect();
@@ -134,12 +133,19 @@ export function setupInstall(
 }
 
 export function installInstructions() {
-  if (!isSecureContext)
-    return "<p>Installation and offline play need a secure connection. Open the HTTPS version of Box Game, then tap Install.</p><p>You can keep playing at this address.</p>";
+  const platform = (navigator as Navigator & { userAgentData?: { platform?: string } }).userAgentData?.platform;
+  if (platform === "Android" || /Android/i.test(navigator.userAgent))
+    return `<ol class="rules">
+      <li><strong>Open the game in Chrome.</strong><p>If Play opened a window inside the Games Dashboard, tap its menu (⋮) and choose <strong>Open in Chrome</strong> or <strong>Open in browser</strong>. Choose Chrome if asked. If that option is missing, use <strong>Copy game link</strong> below, open Chrome, and paste the link into its address bar.</p></li>
+      <li><strong>Install from Chrome.</strong><p>Tap Chrome’s menu (⋮). Choose <strong>Install app</strong>, <strong>Install and create shortcut</strong>, or <strong>Add to Home screen</strong>, then confirm.</p></li>
+    </ol><p><strong>Already installed?</strong> Swipe up from your Android home screen to open the app drawer. Search for <strong>Box Game</strong> and tap its icon to play.</p>`;
   const appleMobile =
     /iPad|iPhone|iPod/.test(navigator.userAgent) ||
     (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
   if (appleMobile)
-    return "<p>In Safari, open the Share menu and choose <strong>Add to Home Screen</strong>. Turn on <strong>Open as Web App</strong> if offered, then tap <strong>Add</strong>.</p>";
-  return "<p>Open your browser’s menu and choose <strong>Install Box Game</strong>, <strong>Install app</strong>, <strong>Add to Home Screen</strong>, or <strong>Add to Dock</strong> if offered.</p><p>If no install option appears, open this page in Chrome, Edge, or Safari. You can keep playing in your browser.</p>";
+    return "<p>Open the game in <strong>Safari</strong>. If you’re in another app, copy the game link below and paste it into Safari.</p><p>Tap <strong>Share</strong>, then <strong>Add to Home Screen</strong>. Turn on <strong>Open as Web App</strong> if offered, then tap <strong>Add</strong>.</p><p><strong>Already installed?</strong> Tap <strong>Box Game</strong> on your Home Screen or find it in the App Library.</p>";
+  const mac = platform === "macOS" || /Mac/.test(navigator.platform);
+  return "<p>Open the game in Chrome or Edge. Select the install icon in the address bar, or find the app installation option in your browser’s menu and confirm.</p>" +
+    (mac ? "<p>In Safari on Mac, choose <strong>File</strong> → <strong>Add to Dock</strong>.</p>" : "") +
+    "<p><strong>Already installed?</strong> Search your device’s apps for <strong>Box Game</strong> and open it.</p>";
 }
