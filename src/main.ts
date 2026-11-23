@@ -25,9 +25,11 @@ import { createWinCelebration } from "./celebration";
 import { createWinAudio } from "./win-audio";
 import type { OnlineView, Session } from "./online";
 import { clearRoom, codes, roomStore, waitingHost } from "./room-storage";
-import { drawInviteQR, inviteURL, shareInvite } from "./multiplayer/invite";
+import { drawInviteQR, inviteParameter, inviteURL, shareInvite } from "./multiplayer/invite";
 import { roomFailure, roomMessages, type RoomOperation } from "./room-feedback";
 const { isRoomCode } = codes;
+const publicGameURL = "https://boxes.chrisawad.com/";
+const publicRoomURL = (code: string) => inviteURL(code, publicGameURL, "fragment");
 
 const $ = <T extends HTMLElement = HTMLElement>(s: string) =>
   document.querySelector<T>(s)!;
@@ -73,9 +75,13 @@ type Match = { mode: Mode; players: Pair; state: State; last?: string };
 let match: Match | undefined,
   view: OnlineView | undefined,
   room: Session | undefined;
-const incomingCode = new URL(location.href).searchParams.get("room")?.trim().toUpperCase();
+const incomingCode = inviteParameter(new URL(location.href));
 const hasInvite = incomingCode !== undefined;
-// Keep an invited guest's refresh quiet after joining removes the room query.
+// Re-enter the normal invite flow if a link changes only this document's fragment.
+window.addEventListener("hashchange", () => {
+  if (new URLSearchParams(location.hash.slice(1)).has("room")) location.reload();
+});
+// Keep an invited guest's refresh quiet after joining removes the invite.
 const inviteVisit = hasInvite || history.state?.boxGameInvite === true;
 const resumeCode = history.state?.setupAfterUpdate ? undefined : savedMatchCode(hasInvite ? incomingCode : undefined);
 let previousMode: "solo" | "local" = prefs.mode === "local" ? "local" : "solo";
@@ -456,7 +462,7 @@ function drawWaiting() {
       ${invite}
     </div>
   </section>`;
-  if (waiting) void showInviteQR($<HTMLCanvasElement>(".invite-qr"), inviteURL(r.code));
+  if (waiting) void showInviteQR($<HTMLCanvasElement>(".invite-qr"), publicRoomURL(r.code));
 }
 async function showInviteQR(canvas: HTMLCanvasElement, url: string) {
   try {
@@ -719,6 +725,11 @@ async function online(
     if (hasInvite) {
       const url = new URL(location.href);
       url.searchParams.delete("room");
+      const fragment = new URLSearchParams(url.hash.slice(1));
+      if (fragment.has("room")) {
+        fragment.delete("room");
+        url.hash = fragment.toString();
+      }
       history.replaceState({ ...history.state, boxGameInvite: true }, "", url);
     }
     session.watch((v) => {
@@ -932,7 +943,7 @@ document.addEventListener("click", async (e) => {
       case "copy-link": {
         if (!view || view.room.status !== "waiting") break;
         const feedback = $("#invite-feedback");
-        const url = inviteURL(view.room.code);
+        const url = publicRoomURL(view.room.code);
         try {
           await navigator.clipboard.writeText(url);
           feedback.textContent = "Invite link copied.";
@@ -988,7 +999,7 @@ document.addEventListener("click", async (e) => {
   }
 });
 async function shareGame(code?: string) {
-  const url = code ? inviteURL(code) : "https://chrisawad.github.io/Box-Game/";
+  const url = code ? publicRoomURL(code) : publicGameURL;
   const text = code ? "Join my Box Game room with code " + code + "." : "Play Box Game with me.";
   if (await shareInvite({ title: "Box Game", text, url })) return;
   const email = "mailto:?subject=Box%20Game&body=" + encodeURIComponent(text + "\n\n" + url);

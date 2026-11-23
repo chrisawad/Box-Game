@@ -10,16 +10,22 @@ export function createRoomCodes(length = 5) {
 }
 export const { isRoomCode, newRoomCode } = createRoomCodes();
 
-export function inviteURL(code: string, page = location.href) {
+export function inviteURL(code: string, page = location.href, format: 'query' | 'fragment' = 'query') {
   const url = new URL(page);
   url.search = '';
   url.hash = '';
-  url.searchParams.set('room', code);
+  if (format === 'fragment') url.hash = new URLSearchParams({ room: code }).toString();
+  else url.searchParams.set('room', code);
   return url.href;
 }
 
+export function inviteParameter(url: URL) {
+  const fragment = new URLSearchParams(url.hash.slice(1));
+  return (fragment.get('room') ?? url.searchParams.get('room'))?.trim().toUpperCase();
+}
+
 export function readInviteCode(url: URL, codes = { isRoomCode }) {
-  const code = url.searchParams.get('room')?.toUpperCase() ?? '';
+  const code = inviteParameter(url) ?? '';
   return codes.isRoomCode(code) ? code : null;
 }
 

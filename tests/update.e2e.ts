@@ -86,7 +86,7 @@ test("cancel keeps both players connected and updating tells the opponent you le
 });
 
 test("the top bar shows the share icon and label and shares the public game link", async ({ page }) => {
-  const publicURL = "https://chrisawad.github.io/Box-Game/";
+  const publicURL = "https://boxes.chrisawad.com/";
   await page.goto("./?room=ABC234");
   await page.evaluate(() => Object.defineProperty(navigator, "share", {
     configurable: true,

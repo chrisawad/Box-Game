@@ -29,7 +29,7 @@ test("both seats survive a fresh launch, an invite reopening and an offline retu
     const code = await startMatch(host, guest);
     await guest.close();
     const returningGuest = await friend.newPage();
-    await returningGuest.goto("./?room=" + code);
+    await returningGuest.goto("./#room=" + code);
     await expect(returningGuest.locator(".edge.owned")).toHaveCount(1);
     await expect(returningGuest.locator(".score b").last()).toHaveText("BY");
     await returningGuest.locator(".edge:enabled").first().click();

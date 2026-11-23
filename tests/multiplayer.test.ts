@@ -33,6 +33,11 @@ it("keeps five-character invites compatible and supports a second game's code fo
   expect(url.href).toBe("https://games.example/second/?room=ABC234");
   expect(readInviteCode(url)).toBeNull();
   expect(readInviteCode(url, codes)).toBe("ABC234");
+  const branded = inviteURL("ABC234", "https://boxes.chrisawad.com/?old=1#old", "fragment");
+  expect(branded).toBe("https://boxes.chrisawad.com/#room=ABC234");
+  expect(readInviteCode(new URL(branded), codes)).toBe("ABC234");
+  expect(readInviteCode(new URL("https://games.example/?room=ZZZ999#room=abc234"), codes)).toBe("ABC234");
+  expect(readInviteCode(new URL("https://games.example/#room=A0I"), codes)).toBeNull();
   expect(readInviteCode(new URL("https://games.example/first/?room=abc23"))).toBe("ABC23");
   expect(codes.isRoomCode(codes.newRoomCode())).toBe(true);
 });

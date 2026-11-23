@@ -50,6 +50,14 @@ async function configure(p: Page, tag: string, option = "Host a game") {
   await p.getByRole("radio", { name: option }).check();
   await p.getByLabel("Your initials").fill(tag);
 }
+test("a fragment invite opens Join in an already open game", async ({ page }) => {
+  await page.goto("./");
+  await page.getByRole("button", { name: "Maybe later" }).click();
+  await page.evaluate(() => { location.hash = "room=abc234"; });
+  await expect(page.getByRole("radio", { name: "Join a friend" })).toBeChecked();
+  await expect(page.getByLabel("Room code")).toHaveValue("ABC234");
+  await expect(page.getByRole("dialog")).toBeHidden();
+});
 test("an installed waiting room keeps its invite and has one host window", async ({ context, page }, info) => {
   test.skip(!process.env.PEER_CI || info.project.name !== "desktop", "Requires isolated signaling.");
   await context.addInitScript(() => Object.defineProperty(navigator, "standalone", { value: true }));
@@ -140,13 +148,12 @@ test("QR and link pair two peers, enforce seats, reconnect, finish and rematch",
     await expect(img).toBeVisible();
     await x.getByRole("button", { name: "Share", exact: true }).click();
     const gameShare = await x.evaluate(() => JSON.parse(sessionStorage.getItem("test-share")!));
-    expect(gameShare.url).toBe("https://chrisawad.github.io/Box-Game/");
+    expect(gameShare.url).toBe("https://boxes.chrisawad.com/");
     expect(gameShare.text).not.toContain(code);
     await x.getByRole("button", { name: "Share invite", exact: true }).click();
     const { url: invite, text } = await x.evaluate(() => JSON.parse(sessionStorage.getItem("test-share")!));
     expect(text).toContain(code);
-    expect(new URL(invite).searchParams.get("room")).toBe(code);
-    expect(new URL(invite).origin).toBe(new URL(baseURL!).origin);
+    expect(invite).toBe(`https://boxes.chrisawad.com/#room=${code}`);
     await x.getByRole("button", { name: "Copy link", exact: true }).click();
     await expect(x.locator("#invite-feedback")).toHaveText("Invite link copied.");
     expect(await x.evaluate(() => navigator.clipboard.readText())).toBe(invite);
@@ -154,7 +161,8 @@ test("QR and link pair two peers, enforce seats, reconnect, finish and rematch",
     await x.getByRole("button", { name: "Share invite", exact: true }).click();
     const fallback = x.getByRole("dialog", { name: "Share invite" });
     await expect(fallback.getByLabel("Send this link to a friend")).toHaveValue(invite);
-    await expect(fallback.getByRole("link", { name: "Share by email" })).toHaveAttribute("href", /mailto:/);
+    const email = await fallback.getByRole("link", { name: "Share by email" }).getAttribute("href");
+    expect(new URL(email!).searchParams.get("body")).toContain(invite);
     await fallback.getByRole("button", { name: "Close" }).click();
     await x.addScriptTag({ path: qrDecoder });
     const decoded = await img.evaluate((c: HTMLCanvasElement) => {
@@ -167,7 +175,12 @@ test("QR and link pair two peers, enforce seats, reconnect, finish and rematch",
       )?.data;
     });
     expect(decoded).toBe(invite);
-    await y.goto(invite);
+    if (process.env.PEER_CI) {
+      // Mirror the public redirect while keeping the test's room on local signaling.
+      await guest.route("https://boxes.chrisawad.com/**", route =>
+        route.fulfill({ status: 301, headers: { location: baseURL! } }));
+    }
+    await y.goto(decoded!);
     await expect(y.getByRole("radio", { name: "Join a friend" })).toBeChecked();
     await expect(y.getByRole("dialog")).toBeHidden();
     await expect(y.getByLabel("Room code")).toHaveValue(code);
@@ -177,6 +190,8 @@ test("QR and link pair two peers, enforce seats, reconnect, finish and rematch",
       await expect(p.locator(".transport")).toHaveText("Connected to opponent", {
         timeout: 25000,
       });
+    expect(new URL(y.url()).hash).toBe("");
+    await expect(y.locator(".match-meta .kicker")).toContainText(code);
     const leave = y.getByRole("button", { name: "Leave room" });
     for (const [width, height] of [[390, 844], [568, 320], [844, 390]]) {
       await y.setViewportSize({ width, height });

@@ -1,6 +1,6 @@
 # Box Game
 
-[Play Box Game](https://chrisawad.github.io/Box-Game/)
+[Play Box Game](https://boxes.chrisawad.com/)
 
 Connect adjacent dots to draw a line. Completing the fourth side claims the box and earns another turn. A shared edge can capture two boxes. When all lines are drawn, the player with the most boxes wins.
 
