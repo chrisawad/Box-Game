@@ -443,7 +443,7 @@ function drawWaiting() {
     <canvas class="invite-qr" width="384" height="384" role="img" aria-label="QR code for room ${esc(r.code)}" hidden></canvas>
     <div class="invite-actions">
       <button class="plain" data-action="copy-link">${icon("link")}Copy link</button>
-      <button class="plain" data-action="share">${icon("share")}Share invite</button>
+      <button class="plain" data-action="share-invite">${icon("share")}Share invite</button>
     </div>
     <p id="invite-feedback" role="status"></p>` : "";
   $("#surface").innerHTML = `<section class="room-lobby" aria-labelledby="lobby-title">
@@ -926,6 +926,9 @@ document.addEventListener("click", async (e) => {
       case "share":
         await shareGame();
         break;
+      case "share-invite":
+        if (view?.room.status === "waiting") await shareGame(view.room.code);
+        break;
       case "copy-link": {
         if (!view || view.room.status !== "waiting") break;
         const feedback = $("#invite-feedback");
@@ -984,9 +987,8 @@ document.addEventListener("click", async (e) => {
     );
   }
 });
-async function shareGame() {
-  const code = screen === "waiting" && view?.room.status === "waiting" ? view.room.code : undefined;
-  const url = code ? inviteURL(code) : new URL("./", location.href).href;
+async function shareGame(code?: string) {
+  const url = code ? inviteURL(code) : "https://chrisawad.github.io/Box-Game/";
   const text = code ? "Join my Box Game room with code " + code + "." : "Play Box Game with me.";
   if (await shareInvite({ title: "Box Game", text, url })) return;
   const email = "mailto:?subject=Box%20Game&body=" + encodeURIComponent(text + "\n\n" + url);

@@ -1225,16 +1225,11 @@ dialog p + p {
   background: #262137;
 }
 @media (max-width: 600px) {
-  header nav { gap: 3px; }
-  .help-button span,
-  header:has(#update:not([hidden])) .share-button span {
-    display: none;
-  }
-  header .help-button,
-  header:has(#update:not([hidden])) .share-button {
-    width: 40px;
-    padding: 0;
-  }
+  header { flex-wrap: wrap; gap: 4px; padding-block: 4px; }
+  header nav { gap: 3px; margin-inline-start: auto; }
+  .help-button span { display: none; }
+  header .help-button { width: 40px; padding: 0; }
+  header .share-button { gap: 5px; padding-inline: 9px; }
 }
 @media (max-width: 450px) {
   .room-options label span {
@@ -1243,7 +1238,9 @@ dialog p + p {
   }
   .brand {
     font-size: 1.33rem;
+    gap: 6px;
   }
+  .brand img { width: 32px; height: 32px; }
   .help-button {
     padding: 0 7px;
     font-size: 0.88rem;
@@ -1265,11 +1262,6 @@ dialog p + p {
   }
 }
 @media (max-width: 370px) {
-  header {
-    flex-wrap: wrap;
-  }
-  .share-button span { display: none; }
-  header .share-button { width: 40px; padding: 0; }
   .showcase {
     height: 145px;
   }

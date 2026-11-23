@@ -138,6 +138,10 @@ test("QR and link pair two peers, enforce seats, reconnect, finish and rematch",
     await expect(x.getByRole("button", { name: /copy.*code/i })).toHaveCount(0);
     const img = x.getByRole("img", { name: "QR code for room " + code });
     await expect(img).toBeVisible();
+    await x.getByRole("button", { name: "Share", exact: true }).click();
+    const gameShare = await x.evaluate(() => JSON.parse(sessionStorage.getItem("test-share")!));
+    expect(gameShare.url).toBe("https://chrisawad.github.io/Box-Game/");
+    expect(gameShare.text).not.toContain(code);
     await x.getByRole("button", { name: "Share invite", exact: true }).click();
     const { url: invite, text } = await x.evaluate(() => JSON.parse(sessionStorage.getItem("test-share")!));
     expect(text).toContain(code);
