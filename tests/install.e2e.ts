@@ -155,15 +155,27 @@ for (const [platform, userAgent, normal, embedded, next] of [
         const details = dialog.locator("details");
         await expect(details).toHaveJSProperty("open", first === embedded);
         if (first === normal) await details.getByText("Copy the game link", { exact: true }).click();
-        await expect(dialog.getByLabel("Game link")).toHaveValue(gameURL);
-        await dialog.getByRole("button", { name: "Copy link", exact: true }).click();
+        const field = dialog.getByLabel("Game link");
+        const copy = dialog.getByRole("button", { name: "Copy link", exact: true });
+        const dismiss = dialog.getByRole("button", { name: "Not now" });
+        await expect(field).toHaveValue(gameURL);
+        const linkBox = (await field.boundingBox())!;
+        const copyBox = (await copy.boundingBox())!;
+        const dismissBox = (await dismiss.boundingBox())!;
+        expect(copyBox.y).toBe(linkBox.y);
+        expect(copyBox.x).toBeGreaterThan(linkBox.x + linkBox.width);
+        expect(dismissBox.y).toBeGreaterThan(copyBox.y + copyBox.height);
+        expect(dismissBox.height).toBe(copyBox.height);
+        expect(dismissBox.x).toBe(linkBox.x);
+        expect(dismissBox.x + dismissBox.width).toBe(copyBox.x + copyBox.width);
+        await copy.click();
         await expect(dialog.getByText("Link copied.", { exact: true })).toBeVisible();
         expect(await page.evaluate(() => sessionStorage.getItem("copied"))).toBe(gameURL);
-        await dialog.getByRole("button", { name: "Copy link", exact: true }).click();
+        await copy.click();
         await expect(dialog.getByText("Use your device’s Copy command to copy the selected link.", { exact: true })).toBeVisible();
         expect(await dialog.getByLabel("Game link").evaluate((input: HTMLInputElement) =>
           input.value.slice(input.selectionStart!, input.selectionEnd!))).toBe(gameURL);
-        await dialog.getByRole("button", { name: "Not now" }).click();
+        await dismiss.click();
         await expect(installIcon(page)).toBeInViewport();
         await page.goto("about:blank");
       }

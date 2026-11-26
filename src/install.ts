@@ -148,8 +148,10 @@ export function setupInstall(
       <p>Keep Boxes on your home screen and play offline after your first visit.</p>
       <div id="install-manually">${installSteps(embedded, gameURL)}
         <details ${embedded ? "open" : ""}><summary>Copy the game link</summary>
-          <input class="share-url" aria-label="Game link" readonly>
-          <button class="plain" id="copy-install-link">Copy link</button>
+          <div class="install-link-row">
+            <input class="share-url" aria-label="Game link" readonly>
+            <button class="plain" id="copy-install-link">Copy link</button>
+          </div>
           <p role="status" id="copy-status"></p>
         </details>
       </div>
