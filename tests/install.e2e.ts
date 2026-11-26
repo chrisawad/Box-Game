@@ -90,7 +90,11 @@ test("a native prompt can be canceled and retried using the same dialog", async 
       userChoice: Promise.resolve({ outcome }),
     })), outcome);
     await expect(dialog.getByText("Copy the game link", { exact: true })).toBeVisible();
-    await dialog.getByRole("button", { name: "Install app", exact: true }).click();
+    const install = dialog.getByRole("button", { name: "Install app", exact: true });
+    const { width, height } = (await install.boundingBox())!;
+    const dismiss = dialog.getByRole("button", { name: "Not now" });
+    expect(await dismiss.boundingBox()).toMatchObject({ width, height });
+    await install.click();
     await expect(page.locator("html")).toHaveAttribute("data-gesture", "true");
     if (outcome === "dismissed") await expect(dialog.getByText("Installation canceled. You can keep playing here.", { exact: true })).toBeVisible();
   }

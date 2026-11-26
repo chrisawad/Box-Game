@@ -519,11 +519,14 @@ header nav {
   font-weight: 800;
   font-variant-numeric: tabular-nums;
 }
+.primary,
+.install-dialog > [data-action="close"] {
+  width: 100%;
+  min-height: 50px;
+}
 .primary {
   justify-content: center;
   gap: 9px;
-  width: 100%;
-  min-height: 50px;
   border: 1px solid #baa0f1;
   border-radius: 13px;
   background: #bd9df1;
