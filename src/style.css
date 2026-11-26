@@ -1165,6 +1165,7 @@ dialog p + p {
   }
 }
 .install-dialog > :not(.dialog-head):not([hidden]) { margin-top: 14px; }
+.install-dialog .dialog-head { justify-content: flex-start; }
 .install-dialog details { margin-top: 12px; }
 .install-dialog summary { cursor: pointer; }
 .install-link-row {

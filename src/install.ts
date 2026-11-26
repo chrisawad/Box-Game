@@ -107,10 +107,15 @@ export function setupInstall(
   const nativeAvailable = () => isSecureContext && (hasInstallApi() || !!prompt || busy);
   function updateActions() {
     const install = dialog.querySelector<HTMLButtonElement>("#native-install")!;
-    install.hidden = !nativeAvailable();
+    const manual = dialog.querySelector<HTMLElement>("#install-manually")!;
+    const native = nativeAvailable();
+    const focused = document.activeElement;
+    install.hidden = !native;
     install.setAttribute("aria-disabled", String(busy));
     install.textContent = busy ? "Installing…" : "Install app";
-    dialog.querySelector<HTMLElement>("#install-manually")!.hidden = !embedded && nativeAvailable();
+    manual.hidden = native;
+    if (dialog.open && native && manual.contains(focused)) install.focus();
+    if (dialog.open && !native && focused === install) manual.querySelector("summary")?.focus();
   }
   async function request() {
     if (busy || isInstalled() || !nativeAvailable()) return;
@@ -119,21 +124,21 @@ export function setupInstall(
     busy = true;
     updateActions();
     try {
-      if (hasInstallApi() && nav.install) {
-        await nav.install();
-        installedHere = true;
-      } else if (prompt) {
+      if (prompt) {
         const pending = prompt;
         prompt = undefined;
         await pending.prompt();
         if ((await pending.userChoice).outcome === "accepted") installedHere = true;
         else status.textContent = "Installation canceled. You can keep playing here.";
+      } else if (hasInstallApi() && nav.install) {
+        await nav.install();
+        installedHere = true;
       }
     } catch (error) {
       if (error instanceof Error && error.name === "AbortError") {
         status.textContent = "Installation canceled. You can keep playing here.";
       } else {
-        if (hasInstallApi()) installApiFailed = true;
+        installApiFailed = true;
         status.textContent = "The installer could not open. Try again or use your browser’s install menu.";
       }
     } finally {
@@ -144,7 +149,7 @@ export function setupInstall(
   function open() {
     if (isInstalled() || dialog.open) return;
     dialog.className = "install-dialog";
-    dialog.innerHTML = `<div class="dialog-head"><h2 id="dialog-title">Install Boxes</h2></div>
+    dialog.innerHTML = `<div class="dialog-head"><img src="./icons/board-192.png" width="40" height="40" alt=""><h2 id="dialog-title">Install Boxes</h2></div>
       <p>Keep Boxes on your home screen and play offline after your first visit.</p>
       <div id="install-manually">${installSteps(embedded, gameURL)}
         <details ${embedded ? "open" : ""}><summary>Copy the game link</summary>
@@ -174,7 +179,7 @@ export function setupInstall(
     const install = dialog.querySelector<HTMLButtonElement>("#native-install")!;
     install.onclick = request;
     updateActions();
-    install.autofocus = nativeAvailable() && !embedded;
+    install.autofocus = nativeAvailable();
     dialog.showModal();
     shownThisVisit = true;
   }

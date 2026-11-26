@@ -89,7 +89,13 @@ test("a native prompt can be canceled and retried using the same dialog", async 
       prompt: async () => { document.documentElement.dataset.gesture = String(navigator.userActivation.isActive); },
       userChoice: Promise.resolve({ outcome }),
     })), outcome);
-    await expect(dialog.getByText("Copy the game link", { exact: true })).toBeVisible();
+    await expect(dialog.getByText("Copy the game link", { exact: true })).toBeHidden();
+    await expect(dialog.locator("#install-manually")).toBeHidden();
+    if (outcome === "dismissed") {
+      await dialog.getByRole("button", { name: "Not now" }).click();
+      await installIcon(page).click();
+      await expect(dialog.locator("#install-manually")).toBeHidden();
+    }
     const install = dialog.getByRole("button", { name: "Install app", exact: true });
     const { width, height } = (await install.boundingBox())!;
     const dismiss = dialog.getByRole("button", { name: "Not now" });
@@ -100,6 +106,36 @@ test("a native prompt can be canceled and retried using the same dialog", async 
   }
   await expect(dialog).toBeHidden();
   await expect(installIcon(page)).toBeHidden();
+});
+
+test("native installation stays compact while pending and shows manual help after a restriction", async ({ page }) => {
+  await page.addInitScript(() => {
+    window.addEventListener("beforeinstallprompt", event => {
+      event.preventDefault();
+      event.stopImmediatePropagation();
+    }, { capture: true });
+    Object.defineProperty(navigator, "install", {
+      value: () => new Promise((_, reject) => window.addEventListener("restrict-install", () =>
+        reject(new DOMException("Installation is restricted", "NotAllowedError")), { once: true })),
+    });
+  });
+  for (const path of ["./", "./#from=games-dashboard"]) {
+    await page.goto(path);
+    const dialog = installDialog(page);
+    const manual = dialog.locator("#install-manually");
+    await dialog.getByRole("button", { name: "Install app", exact: true }).click();
+    await expect(dialog.getByRole("button", { name: "Installing…" })).toBeVisible();
+    await expect(manual).toBeHidden();
+    await page.evaluate(() => window.dispatchEvent(new Event("restrict-install")));
+    await expect(manual).toBeVisible();
+    await expect(dialog.getByRole("button", { name: "Install app", exact: true })).toBeHidden();
+    if (path === "./") await dialog.getByText("Copy the game link", { exact: true }).click();
+    await expect(dialog.getByLabel("Game link")).toHaveValue(gameURL);
+    await expect(dialog.getByRole("button", { name: "Copy link", exact: true })).toBeVisible();
+    await dialog.getByRole("button", { name: "Not now" }).click();
+    await expect(dialog).toBeHidden();
+    await page.goto("about:blank");
+  }
 });
 
 test("a home-screen launch and a browser-confirmed Boxes install suppress both install controls", async ({ page }) => {
