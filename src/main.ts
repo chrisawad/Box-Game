@@ -20,7 +20,7 @@ import {
   type State,
 } from "./game";
 import { boardHtml, esc, fallbackArt, frame, icon } from "./ui";
-import { installInstructions, installLaunchContext, setupInstall } from "./install";
+import { setupInstall } from "./install";
 import { createWinCelebration } from "./celebration";
 import { createWinAudio } from "./win-audio";
 import type { OnlineView, Session } from "./online";
@@ -75,7 +75,6 @@ type Match = { mode: Mode; players: Pair; state: State; last?: string };
 let match: Match | undefined,
   view: OnlineView | undefined,
   room: Session | undefined;
-const installContext = installLaunchContext();
 const incomingCode = inviteParameter(new URL(location.href));
 const hasInvite = incomingCode !== undefined;
 // Re-enter the normal invite flow if a link changes only this document's fragment.
@@ -143,14 +142,12 @@ app.innerHTML =
   '<header><div class="brand"><img src="./icons/board-192.png" width="40" height="40" alt="">' +
   '<span>Box Game<span class="period">.</span></span></div><nav><button class="round" id="update" aria-label="Game update available" title="Game update available" aria-haspopup="dialog" aria-controls="dialog" hidden>' +
   icon("install") +
-  '</button><button class="plain share-button" data-action="share" aria-label="Share" title="Share">' +
-  icon("share") + '<span>Share</span></button><button class="plain help-button" data-action="help" aria-label="Help" title="Help" aria-haspopup="dialog">' +
-  icon("help") +
-  '<span>Help</span></button><button class="round" id="sound" data-action="sound"></button></nav></header><aside id="install-wrap" class="offer" aria-label="Install Box Game" hidden><div class="install-copy"><b>Install Box Game</b><small>Play solo or local games offline.</small></div><button class="install" id="install">' +
+  '</button><button class="round" id="install" aria-label="Install Boxes" title="Install Boxes" aria-haspopup="dialog" aria-controls="dialog" hidden>' +
   icon("install") +
-  ' Install game</button><button id="skip-install" class="round" aria-label="Dismiss install offer">' +
-  icon("close") +
-  '</button></aside><section id="surface"></section><footer><span id="notice" role="status"></span></footer>';
+  '</button><button class="plain share-button" data-action="share" aria-label="Share" title="Share">' +
+  icon("share") + '<span>Share</span></button><button class="plain help-button" data-action="help" aria-label="How to play" title="How to play" aria-haspopup="dialog">' +
+  icon("help") +
+  '<span>How to play</span></button><button class="round" id="sound" data-action="sound"></button></nav></header><section id="surface"></section><footer><span id="notice" role="status"></span></footer>';
 function soundUI() {
   const b = $("#sound");
   b.innerHTML = icon(prefs.sound ? "sound" : "mute");
@@ -174,26 +171,12 @@ dialog.addEventListener("close", () => {
 dialog.addEventListener("click", (e) => {
   if (e.target === dialog) close();
 });
-const installBanner = $("#install-wrap");
 const updateButton = $<HTMLButtonElement>("#update");
-const popupKey = "box-game.install-popup-shown";
-const bannerKey = "box-game.install-offered";
 const updateKey = "box-game.update-offered";
-let popupShown = false;
 let updateShown = false;
-let installStateReady = false;
-let nativeInstallAvailable = false;
-let entryGuideShown = false;
-function collapseInstallBanner() {
-  installBanner.classList.remove("offer");
-  $("footer").prepend(installBanner);
-}
 try {
-  popupShown = sessionStorage.getItem(popupKey) === "1";
   updateShown = sessionStorage.getItem(updateKey) === import.meta.url;
-  if (!inviteVisit && sessionStorage.getItem(bannerKey) === "1") collapseInstallBanner();
 } catch {}
-if (inviteVisit) collapseInstallBanner();
 function showUpdate() {
   modal(
     "Game update ready",
@@ -205,69 +188,21 @@ function showUpdate() {
     sessionStorage.setItem(updateKey, import.meta.url);
   } catch {}
 }
-function offerPendingPrompt() {
+function offerUpdate() {
   if (inviteVisit || peerSave || working || room || match?.mode === "online" || dialog.open) return;
-  if (installContext.embedded || installContext.mobile) {
-    if (!installStateReady) return;
-    if (!installBanner.hidden && !entryGuideShown) {
-      entryGuideShown = true;
-      showInstallHelp(true);
-      return;
-    }
-  }
-  if (!updateButton.hidden) {
-    if (!updateShown) showUpdate();
-    return;
-  }
-  if (entryGuideShown || popupShown || installBanner.hidden) return;
-  modal(
-    "Install Box Game",
-    '<p>Add Box Game to your home screen to play solo or with someone beside you, even offline.</p><div class="dialog-actions"><button class="primary" data-action="install" autofocus>' +
-      icon("install") +
-      ' Install game</button><button class="plain" data-action="close">Maybe later</button></div>',
-    "install-dialog",
-  );
-  popupShown = true;
-  try {
-    sessionStorage.setItem(popupKey, "1");
-  } catch {}
+  if (!updateButton.hidden && !updateShown) showUpdate();
 }
-dialog.addEventListener("close", offerPendingPrompt);
-function showInstallHelp(automatic = false) {
-  modal("How to install", installInstructions() +
-    `<label class="install-link-label" for="install-game-link">Game link</label>
-    <input class="share-url" id="install-game-link" value="${esc(publicGameURL)}" readonly>
-    <button class="plain" data-action="copy-game-link">${icon("link")}Copy game link</button>
-    <p role="status" id="install-copy-status"></p>
-    <div class="dialog-actions"><button class="primary" id="guide-install" data-action="install" ${nativeInstallAvailable && !installBanner.hidden ? "" : "hidden"}>${icon("install")} Install game</button>
-    <button class="plain" data-action="close">Continue to game</button></div>`, automatic ? "install-dialog" : "");
-}
-const installFlow = setupInstall(
+dialog.addEventListener("close", offerUpdate);
+setupInstall(
   $<HTMLButtonElement>("#install"),
-  installContext.embedded,
-  showInstallHelp,
-  notify,
-  () => $<HTMLButtonElement>(".help-button").focus(),
-  (installed, nativeAvailable) => {
-    installStateReady = true;
-    nativeInstallAvailable = nativeAvailable;
-    installBanner.hidden = installed;
-    const guideInstall = dialog.querySelector<HTMLButtonElement>("#guide-install");
-    if (guideInstall) guideInstall.hidden = installed || !nativeAvailable;
-    if (installed && dialog.classList.contains("install-dialog")) close();
-    offerPendingPrompt();
-  },
+  dialog,
+  publicGameURL,
+  () => $<HTMLButtonElement>(".share-button").focus(),
+  () => updateButton.hidden && !inviteVisit && !peerSave && !working && !room && !match && screen === "setup",
 );
-$("#skip-install").onclick = () => {
-  collapseInstallBanner();
-  try {
-    sessionStorage.setItem(bannerKey, "1");
-  } catch {}
-  $("#install").focus();
-};
 function updateReady() {
   updateButton.hidden = false;
-  offerPendingPrompt();
+  offerUpdate();
 }
 const updateSW = registerSW({
   onNeedRefresh: updateReady,
@@ -943,33 +878,12 @@ document.addEventListener("click", async (e) => {
       case "apply-update":
         await applyUpdate(b);
         break;
-      case "install":
-        close();
-        await installFlow.request();
-        break;
       case "help":
         modal(
-          "Game help",
-          '<button class="plain" data-action="install-help">' + icon("install") +
-          'How to install</button><h3 class="help-rules-title">How to play</h3><ol class="rules"><li><strong>Draw one line.</strong><p>Tap the space between two neighboring dots.</p></li><li><strong>Close a box.</strong><p>The fourth side claims the box for you, even if your opponent drew the other three. Take another turn.</p></li><li><strong>Claim the most boxes.</strong><p>When the board is full, the higher score wins.</p></li></ol><button class="primary" data-action="close">Got it</button>',
+          "How to play",
+          '<ol class="rules"><li><strong>Draw one line.</strong><p>Tap the space between two neighboring dots.</p></li><li><strong>Close a box.</strong><p>The fourth side claims the box for you, even if your opponent drew the other three. Take another turn.</p></li><li><strong>Claim the most boxes.</strong><p>When the board is full, the higher score wins.</p></li></ol><button class="primary" data-action="close">Got it</button>',
         );
         break;
-      case "install-help":
-        showInstallHelp();
-        break;
-      case "copy-game-link": {
-        const field = $<HTMLInputElement>("#install-game-link");
-        const feedback = $("#install-copy-status");
-        try {
-          await navigator.clipboard.writeText(publicGameURL);
-          feedback.textContent = "Game link copied.";
-        } catch {
-          field.focus();
-          field.select();
-          feedback.textContent = "Select Copy to copy the highlighted game link.";
-        }
-        break;
-      }
       case "sound":
         prefs.sound = !prefs.sound;
         persist();

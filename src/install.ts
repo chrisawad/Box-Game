@@ -16,7 +16,7 @@ function mobilePlatform() {
       (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1)) return "iOS";
 }
 
-export function installLaunchContext() {
+function isEmbeddedLaunch() {
   const url = new URL(location.href);
   const parts = url.hash.slice(1).split("&");
   const marked = parts.includes("from=games-dashboard");
@@ -31,20 +31,18 @@ export function installLaunchContext() {
     (platform === "Android" && /Version\/4\.0.*Chrome\//.test(ua)) ||
     (platform === "iOS" && !/Safari\//.test(ua) && !(navigator as InstallNavigator).standalone);
   const dashboardReferrer = /^https:\/\/(games\.chrisawad\.com\/|chrisawad\.github\.io\/games-dashboard\/)/i.test(document.referrer);
-  const embedded = marked || history.state?.boxGameDashboard === true ||
+  return marked || history.state?.boxGameDashboard === true ||
     window.self !== window.top || dashboardReferrer || webView;
-  // Custom tabs can have the same user agent as the full mobile browser.
-  return { embedded, mobile: !!platform };
 }
 
 export function setupInstall(
   button: HTMLButtonElement,
-  embedded: boolean,
-  help: () => void,
-  status: (message: string) => void,
+  dialog: HTMLDialogElement,
+  gameURL: string,
   focusAfterInstall: () => void,
-  onChange: (installed: boolean, nativeAvailable: boolean) => void,
+  canOffer: () => boolean,
 ) {
+  const embedded = isEmbeddedLaunch();
   const nav = navigator as InstallNavigator;
   const appMode = matchMedia(
     "(display-mode: standalone), (display-mode: minimal-ui), (display-mode: window-controls-overlay)",
@@ -53,14 +51,22 @@ export function setupInstall(
     relatedInstalled = false,
     installedHere = false,
     installApiFailed = false,
+    busy = false,
     revision = 0;
+  let shownThisVisit = false;
+  let ready = false;
+  let visit = 0;
   const hasInstallApi = () => !installApiFailed && typeof nav.install === "function";
   const isInstalled = () =>
     installedHere || relatedInstalled || (!embedded && (appMode.matches || nav.standalone === true));
   const reflect = () => {
     const installed = isInstalled();
-    if (installed && document.activeElement === button) focusAfterInstall();
-    onChange(installed, isSecureContext && (!!prompt || hasInstallApi()));
+    const showing = dialog.open && dialog.className === "install-dialog";
+    if (installed && showing) dialog.close();
+    if (installed && (showing || document.activeElement === button)) focusAfterInstall();
+    button.hidden = installed;
+    if (showing && !installed) updateActions();
+    if (ready && !installed && !shownThisVisit && !dialog.open && canOffer()) open();
   };
   const checkRelated = async () => {
     const check = ++revision;
@@ -81,7 +87,7 @@ export function setupInstall(
   };
   appMode.addEventListener("change", reflect);
   window.addEventListener("focus", () => {
-    void checkRelated().then(reflect);
+    if (ready) void checkRelated().then(reflect);
   });
   window.addEventListener("appinstalled", () => {
     revision++;
@@ -98,14 +104,20 @@ export function setupInstall(
     installedHere = false;
     reflect();
   });
-  const request = async () => {
-    if (isInstalled() || button.getAttribute("aria-disabled") === "true") return;
-    // Call supported install APIs directly in this user gesture.
-    if (!isSecureContext || (!hasInstallApi() && !prompt)) {
-      help();
-      return;
-    }
-    button.setAttribute("aria-disabled", "true");
+  const nativeAvailable = () => isSecureContext && (hasInstallApi() || !!prompt || busy);
+  function updateActions() {
+    const install = dialog.querySelector<HTMLButtonElement>("#native-install")!;
+    install.hidden = !nativeAvailable();
+    install.setAttribute("aria-disabled", String(busy));
+    install.textContent = busy ? "Installing…" : "Install app";
+    dialog.querySelector<HTMLElement>("#install-manually")!.hidden = !embedded && nativeAvailable();
+  }
+  async function request() {
+    if (busy || isInstalled() || !nativeAvailable()) return;
+    const status = dialog.querySelector<HTMLElement>("#install-status")!;
+    status.textContent = "";
+    busy = true;
+    updateActions();
     try {
       if (hasInstallApi() && nav.install) {
         await nav.install();
@@ -115,42 +127,94 @@ export function setupInstall(
         prompt = undefined;
         await pending.prompt();
         if ((await pending.userChoice).outcome === "accepted") installedHere = true;
-        else status("Installation canceled. You can install later.");
+        else status.textContent = "Installation canceled. You can keep playing here.";
       }
     } catch (error) {
-      if (error instanceof Error && error.name === "AbortError")
-        status("Installation canceled. You can install later.");
-      else {
+      if (error instanceof Error && error.name === "AbortError") {
+        status.textContent = "Installation canceled. You can keep playing here.";
+      } else {
         if (hasInstallApi()) installApiFailed = true;
-        help();
+        status.textContent = "The installer could not open. Try again or use your browser’s install menu.";
       }
     } finally {
-      button.removeAttribute("aria-disabled");
+      busy = false;
       reflect();
     }
-  };
-  button.addEventListener("click", request);
-  // Allow a quick positive lookup to settle without blocking help on a stalled lookup.
-  const deadline = window.setTimeout(reflect, 600);
-  void checkRelated().then(() => {
-    clearTimeout(deadline);
-    reflect();
-  });
-  return { request };
+  }
+  function open() {
+    if (isInstalled() || dialog.open) return;
+    dialog.className = "install-dialog";
+    dialog.innerHTML = `<div class="dialog-head"><h2 id="dialog-title">Install Boxes</h2></div>
+      <p>Keep Boxes on your home screen and play offline after your first visit.</p>
+      <div id="install-manually">${installSteps(embedded, gameURL)}
+        <details ${embedded ? "open" : ""}><summary>Copy the game link</summary>
+          <input class="share-url" aria-label="Game link" readonly>
+          <button class="plain" id="copy-install-link">Copy link</button>
+          <p role="status" id="copy-status"></p>
+        </details>
+      </div>
+      <button class="primary" id="native-install"></button><p role="status" id="install-status"></p>
+      <button class="plain" data-action="close">Not now</button>`;
+    const field = dialog.querySelector("input")!;
+    field.value = gameURL;
+    field.onfocus = () => field.select();
+    dialog.querySelector<HTMLButtonElement>("#copy-install-link")!.onclick = async () => {
+      const status = dialog.querySelector<HTMLElement>("#copy-status")!;
+      try {
+        await navigator.clipboard.writeText(gameURL);
+        status.textContent = "Link copied.";
+      } catch {
+        field.focus();
+        field.select();
+        status.textContent = "Use your device’s Copy command to copy the selected link.";
+      }
+    };
+    const install = dialog.querySelector<HTMLButtonElement>("#native-install")!;
+    install.onclick = request;
+    updateActions();
+    install.autofocus = nativeAvailable() && !embedded;
+    dialog.showModal();
+    shownThisVisit = true;
+  }
+  button.addEventListener("click", open);
+  dialog.addEventListener("close", reflect);
+  function startVisit() {
+    const current = ++visit;
+    ready = false;
+    shownThisVisit = dialog.open && dialog.className === "install-dialog";
+    const offer = () => {
+      if (visit !== current) return;
+      ready = true;
+      reflect();
+    };
+    // An embedded browser can leave this lookup pending indefinitely.
+    const deadline = window.setTimeout(offer, 600);
+    void checkRelated().then(() => {
+      clearTimeout(deadline);
+      offer();
+    });
+  }
+  startVisit();
+  window.addEventListener("pageshow", event => { if (event.persisted) startVisit(); });
 }
 
-export function installInstructions() {
-  const platform = (navigator as InstallNavigator).userAgentData?.platform;
-  const mobile = mobilePlatform();
-  if (mobile === "Android")
-    return `<ol class="rules">
-      <li><strong>Open the game in Chrome.</strong><p>If you’re in the Games Dashboard or another app, open its menu (⋮) and choose <strong>Open in Chrome</strong> or <strong>Open in browser</strong>. Choose Chrome if asked. If that option is missing, use <strong>Copy game link</strong> below, open Chrome, and paste the link into its address bar.</p></li>
-      <li><strong>Install from Chrome.</strong><p>Tap Chrome’s menu (⋮). Choose <strong>Install app</strong>, <strong>Install and create shortcut</strong>, or <strong>Add to Home screen</strong>, then confirm.</p></li>
-    </ol><p><strong>Already installed?</strong> Swipe up from your Android home screen to open the app drawer. Search for <strong>Box Game</strong> and tap its icon to play.</p>`;
-  if (mobile === "iOS")
-    return "<p>Open the game in <strong>Safari</strong>. If you’re in another app, copy the game link below and paste it into Safari.</p><p>Tap <strong>Share</strong>, then <strong>Add to Home Screen</strong>. Turn on <strong>Open as Web App</strong> if offered, then tap <strong>Add</strong>.</p><p><strong>Already installed?</strong> Tap <strong>Box Game</strong> on your Home Screen or find it in the App Library.</p>";
-  const mac = platform === "macOS" || /Mac/.test(navigator.platform);
-  return "<p>Open the game in Chrome or Edge. Select the install icon in the address bar, or find the app installation option in your browser’s menu and confirm.</p>" +
-    (mac ? "<p>In Safari on Mac, choose <strong>File</strong> → <strong>Add to Dock</strong>.</p>" : "") +
-    "<p><strong>Already installed?</strong> Search your device’s apps for <strong>Box Game</strong> and open it.</p>";
+function installSteps(embedded: boolean, url: string) {
+  const game = isSecureContext ? "Boxes" : `<a href="${url}">Boxes</a>`;
+  switch (mobilePlatform()) {
+    case "iOS":
+      return `<ol class="rules"><li>${embedded
+        ? "Use <strong>Open in Safari</strong> in this window’s menu, or copy the game link below and open it in Safari. Tap <strong>Share</strong>."
+        : `Open ${game} in Safari and tap <strong>Share</strong>.`}</li>
+        <li>Choose <strong>Add to Home Screen</strong>. Turn on <strong>Open as Web App</strong> if offered, then tap <strong>Add</strong>.</li></ol>`;
+    case "Android":
+      return `<ol class="rules"><li>${embedded
+        ? "Choose <strong>Open in Chrome</strong> in this window’s menu, or copy the game link below and open it in Chrome."
+        : `Open ${game} in Chrome.`}</li>
+        <li>Tap Chrome’s <strong>⋮ menu</strong>, choose <strong>Install app</strong> or <strong>Add to Home screen</strong>, and follow the prompt.</li></ol>`;
+    default:
+      if (!isSecureContext) return `<p>To install from this preview, open <a href="${url}">Boxes over HTTPS</a>.</p>`;
+      if (/Macintosh/.test(navigator.userAgent) && /Version\/.*Safari\//.test(navigator.userAgent))
+        return "<p>In Safari, choose <strong>File → Add to Dock</strong>, then select <strong>Add</strong>.</p>";
+      return "<p>Open Boxes in Chrome or Edge and choose the <strong>install option</strong> in the address bar or browser menu.</p>";
+  }
 }

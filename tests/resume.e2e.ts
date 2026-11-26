@@ -7,7 +7,7 @@ test.beforeEach(({}, info) => {
 
 async function startMatch(host: Page, guest: Page) {
   await host.goto("./");
-  await host.getByRole("button", { name: "Maybe later" }).click();
+  await host.getByRole("button", { name: "Not now" }).click();
   await host.getByRole("button", { name: "Online", exact: true }).click();
   await host.getByLabel("Your initials").fill("AX");
   await host.getByRole("button", { name: "Create private room" }).click();

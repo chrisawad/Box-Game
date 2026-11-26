@@ -33,7 +33,7 @@ test("two browsers exchange moves over the selected direct or backup route", asy
       }
     }
     await page.goto("./");
-    await page.getByRole("button", { name: "Maybe later" }).click();
+    await page.getByRole("button", { name: "Not now" }).click();
     await page.getByRole("button", { name: "Online", exact: true }).click();
     await page.getByRole("button", { name: "Create private room" }).click();
     const code = await page.locator(".room-code").innerText({ timeout: 25000 });

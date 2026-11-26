@@ -17,8 +17,8 @@ async function openWithPendingUpdate(page: Page) {
   const update = page.getByRole("dialog", { name: "Game update ready" });
   await expect(download).toBeVisible();
   // Honor any install prompt already on screen before showing an update.
-  const install = page.getByRole("dialog", { name: "Install Box Game" });
-  if (await install.isVisible()) await install.getByRole("button", { name: "Maybe later" }).click();
+  const install = page.getByRole("dialog", { name: "Install Boxes" });
+  if (await install.isVisible()) await install.getByRole("button", { name: "Not now" }).click();
   await expect(update.getByRole("button", { name: "Cancel" })).toBeFocused();
   await expect(update).toContainText("Updating will exit any active game");
   await update.getByRole("button", { name: "Cancel" }).click();
@@ -50,11 +50,13 @@ test("cancel preserves the board and confirming a header update exits to setup",
     page.waitForEvent("domcontentloaded"),
     update.getByRole("button", { name: "Update now" }).click(),
   ]);
+  await page.getByRole("button", { name: "Not now" }).click();
   await expect(page.getByRole("button", { name: "Start game" })).toBeVisible();
   await expect(page.locator(".edge")).toHaveCount(0);
   await expect(download).toBeHidden();
   expect(await page.evaluate(() => new URL(navigator.serviceWorker.controller!.scriptURL).search)).toBe("");
   await page.reload();
+  await page.getByRole("button", { name: "Not now" }).click();
   await expect(page.getByRole("button", { name: "Start game" })).toBeVisible();
 });
 
@@ -76,9 +78,11 @@ test("cancel keeps both players connected and updating tells the opponent you le
     await download.click();
     await update.getByRole("button", { name: "Update now" }).click();
     await expect(guest.locator(".turn")).toHaveText("Opponent left");
+    await page.getByRole("button", { name: "Not now" }).click();
     await expect(page.getByRole("heading", { name: "Play online" })).toBeVisible();
     await expect(download).toBeHidden();
     await page.reload();
+    await page.getByRole("button", { name: "Not now" }).click();
     await expect(page.getByRole("button", { name: "Create private room" })).toBeVisible();
   } finally {
     await guest.close();

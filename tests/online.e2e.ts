@@ -11,7 +11,7 @@ test("an invite opens the dark join screen with the room filled in and a quiet i
   await expect(join).toBeChecked();
   await expect(code).toHaveValue("ABC234");
   // Wait for installation detection, then also exercise a late eligibility event.
-  await expect(page.locator("footer #install")).toBeVisible();
+  await expect(page.locator("header #install")).toBeVisible();
   await page.evaluate(() => window.dispatchEvent(new Event("beforeinstallprompt", { cancelable: true })));
   await expect(page.getByRole("dialog")).toBeHidden();
   await expect(page.getByRole("heading", { name: "Board size" })).toHaveCount(0);
@@ -36,23 +36,23 @@ test("an invite opens the dark join screen with the room filled in and a quiet i
   await expect(page.getByLabel("Your initials")).toHaveValue("AX");
   await page.reload();
   await expect(teal).toBeChecked();
-  await expect(page.locator("footer #install")).toBeVisible();
+  await expect(page.locator("header #install")).toBeVisible();
   await expect(page.getByRole("dialog")).toBeHidden();
 
   await page.goto("./");
-  await expect(page.getByRole("dialog", { name: "Install Box Game" })).toBeVisible();
+  await expect(page.getByRole("dialog", { name: "Install Boxes" })).toBeVisible();
 });
 
 async function configure(p: Page, tag: string, option = "Host a game") {
   await p.goto("./");
-  await p.getByRole("button", { name: "Maybe later" }).click();
+  await p.getByRole("button", { name: "Not now" }).click();
   await p.getByRole("button", { name: "Online", exact: true }).click();
   await p.getByRole("radio", { name: option }).check();
   await p.getByLabel("Your initials").fill(tag);
 }
 test("a fragment invite opens Join in an already open game", async ({ page }) => {
   await page.goto("./");
-  await page.getByRole("button", { name: "Maybe later" }).click();
+  await page.getByRole("button", { name: "Not now" }).click();
   await page.evaluate(() => { location.hash = "room=abc234"; });
   await expect(page.getByRole("radio", { name: "Join a friend" })).toBeChecked();
   await expect(page.getByLabel("Room code")).toHaveValue("ABC234");

@@ -3,7 +3,7 @@ import { expect, test } from "@playwright/test";
 test("rotate an active match and play the bottom edge without scrolling", async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await page.goto("./");
-  await page.getByRole("button", { name: "Maybe later" }).click();
+  await page.getByRole("button", { name: "Not now" }).click();
   await page.getByRole("button", { name: "Local", exact: true }).click();
   await page.getByRole("button", { name: "Start game" }).click();
   for (const [width, height] of [[844, 390], [667, 375], [568, 320]]) {
