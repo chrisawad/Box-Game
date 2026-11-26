@@ -29,7 +29,7 @@ test("both seats survive a fresh launch, an invite reopening and an offline retu
     const code = await startMatch(host, guest);
     await guest.close();
     const returningGuest = await friend.newPage();
-    await returningGuest.goto("./#room=" + code);
+    await returningGuest.goto("./#from=games-dashboard&room=" + code);
     await expect(returningGuest.locator(".edge.owned")).toHaveCount(1);
     await expect(returningGuest.locator(".score b").last()).toHaveText("BY");
     await returningGuest.locator(".edge:enabled").first().click();
@@ -39,7 +39,7 @@ test("both seats survive a fresh launch, an invite reopening and an offline retu
     await host.close();
     await context.setOffline(true);
     const returningHost = await context.newPage();
-    await returningHost.goto("./");
+    await returningHost.goto("./#from=games-dashboard");
     await expect(returningHost.locator(".edge.owned")).toHaveCount(2);
     await expect(returningHost.locator(".edge:enabled")).toHaveCount(0);
     await expect(returningHost.locator(".turn")).toHaveText("Waiting to reconnect…");

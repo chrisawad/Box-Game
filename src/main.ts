@@ -20,7 +20,7 @@ import {
   type State,
 } from "./game";
 import { boardHtml, esc, fallbackArt, frame, icon } from "./ui";
-import { installInstructions, setupInstall } from "./install";
+import { installInstructions, installLaunchContext, setupInstall } from "./install";
 import { createWinCelebration } from "./celebration";
 import { createWinAudio } from "./win-audio";
 import type { OnlineView, Session } from "./online";
@@ -75,15 +75,18 @@ type Match = { mode: Mode; players: Pair; state: State; last?: string };
 let match: Match | undefined,
   view: OnlineView | undefined,
   room: Session | undefined;
+const installContext = installLaunchContext();
 const incomingCode = inviteParameter(new URL(location.href));
 const hasInvite = incomingCode !== undefined;
 // Re-enter the normal invite flow if a link changes only this document's fragment.
 window.addEventListener("hashchange", () => {
-  if (new URLSearchParams(location.hash.slice(1)).has("room")) location.reload();
+  const fragment = new URLSearchParams(location.hash.slice(1));
+  if (fragment.has("room") || fragment.get("from") === "games-dashboard") location.reload();
 });
 // Keep an invited guest's refresh quiet after joining removes the invite.
 const inviteVisit = hasInvite || history.state?.boxGameInvite === true;
 const resumeCode = history.state?.setupAfterUpdate ? undefined : savedMatchCode(hasInvite ? incomingCode : undefined);
+const peerSave = !history.state?.setupAfterUpdate && (resumeCode || (!hasInvite && (roomStore.readMatch() || waitingHost.read())));
 let previousMode: "solo" | "local" = prefs.mode === "local" ? "local" : "solo";
 type RoomAction = Exclude<RoomOperation, "restore" | "play">;
 let roomAction: RoomAction = hasInvite ? "join" : "create";
@@ -178,6 +181,9 @@ const bannerKey = "box-game.install-offered";
 const updateKey = "box-game.update-offered";
 let popupShown = false;
 let updateShown = false;
+let installStateReady = false;
+let nativeInstallAvailable = false;
+let entryGuideShown = false;
 function collapseInstallBanner() {
   installBanner.classList.remove("offer");
   $("footer").prepend(installBanner);
@@ -200,11 +206,20 @@ function showUpdate() {
   } catch {}
 }
 function offerPendingPrompt() {
+  if (inviteVisit || peerSave || working || room || match?.mode === "online" || dialog.open) return;
+  if (installContext.embedded || installContext.mobile) {
+    if (!installStateReady) return;
+    if (!installBanner.hidden && !entryGuideShown) {
+      entryGuideShown = true;
+      showInstallHelp(true);
+      return;
+    }
+  }
   if (!updateButton.hidden) {
-    if (!updateShown && !dialog.open) showUpdate();
+    if (!updateShown) showUpdate();
     return;
   }
-  if (inviteVisit || resumeCode || popupShown || installBanner.hidden || dialog.open) return;
+  if (entryGuideShown || popupShown || installBanner.hidden) return;
   modal(
     "Install Box Game",
     '<p>Add Box Game to your home screen to play solo or with someone beside you, even offline.</p><div class="dialog-actions"><button class="primary" data-action="install" autofocus>' +
@@ -218,22 +233,29 @@ function offerPendingPrompt() {
   } catch {}
 }
 dialog.addEventListener("close", offerPendingPrompt);
-function showInstallHelp() {
+function showInstallHelp(automatic = false) {
   modal("How to install", installInstructions() +
     `<label class="install-link-label" for="install-game-link">Game link</label>
     <input class="share-url" id="install-game-link" value="${esc(publicGameURL)}" readonly>
     <button class="plain" data-action="copy-game-link">${icon("link")}Copy game link</button>
-    <p role="status" id="install-copy-status"></p>`);
+    <p role="status" id="install-copy-status"></p>
+    <div class="dialog-actions"><button class="primary" id="guide-install" data-action="install" ${nativeInstallAvailable && !installBanner.hidden ? "" : "hidden"}>${icon("install")} Install game</button>
+    <button class="plain" data-action="close">Continue to game</button></div>`, automatic ? "install-dialog" : "");
 }
 const installFlow = setupInstall(
   $<HTMLButtonElement>("#install"),
+  installContext.embedded,
   showInstallHelp,
   notify,
   () => $<HTMLButtonElement>(".help-button").focus(),
-  (installed) => {
+  (installed, nativeAvailable) => {
+    installStateReady = true;
+    nativeInstallAvailable = nativeAvailable;
     installBanner.hidden = installed;
+    const guideInstall = dialog.querySelector<HTMLButtonElement>("#guide-install");
+    if (guideInstall) guideInstall.hidden = installed || !nativeAvailable;
     if (installed && dialog.classList.contains("install-dialog")) close();
-    if (!installed) offerPendingPrompt();
+    offerPendingPrompt();
   },
 );
 $("#skip-install").onclick = () => {
@@ -1044,7 +1066,6 @@ if (afterUpdate) {
   delete state.setupAfterUpdate;
   history.replaceState(state, "");
 }
-const peerSave = !afterUpdate && (resumeCode || (!hasInvite && (roomStore.readMatch() || waitingHost.read())));
 if (
   !hasInvite &&
   !peerSave &&
