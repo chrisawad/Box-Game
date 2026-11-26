@@ -23,6 +23,7 @@ test("local game, double scoring, reload and rematch", async ({ page }) => {
   await expect(page.locator(".tile")).toHaveCount(2);
   await expect(page.locator(".score strong").first()).toHaveText("2");
   await page.reload();
+  await page.getByRole("button", { name: "Not now" }).click();
   await expect(page.locator(".tile")).toHaveCount(2);
   while (await page.locator(".edge:enabled").count())
     await page.locator(".edge:enabled").first().click();
@@ -31,6 +32,7 @@ test("local game, double scoring, reload and rematch", async ({ page }) => {
   await page.getByRole("button", { name: "View board" }).click();
   await expect(page.locator(".tile")).toHaveCount(4);
   await page.reload();
+  await page.getByRole("button", { name: "Not now" }).click();
   await expect(page.getByRole("dialog")).not.toBeVisible();
   await page.getByRole("button", { name: "Play again" }).click();
   await expect(page.locator(".edge:enabled")).toHaveCount(12);
@@ -68,9 +70,11 @@ test("computer responds, local match resumes offline, and installation respects 
     await navigator.serviceWorker.ready;
   });
   await page.reload();
+  await page.getByRole("button", { name: "Not now" }).click();
   await page.waitForFunction(() => Boolean(navigator.serviceWorker.controller));
   await context.setOffline(true);
   await page.reload();
+  await page.getByRole("button", { name: "Not now" }).click();
   await expect(page.locator(".edge.owned")).toHaveCount(2);
   await page.locator(".edge:enabled").first().click();
   await expect(page.locator(".edge.owned")).toHaveCount(4);

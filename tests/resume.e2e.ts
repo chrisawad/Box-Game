@@ -13,6 +13,7 @@ async function startMatch(host: Page, guest: Page) {
   await host.getByRole("button", { name: "Create private room" }).click();
   const code = await host.locator(".room-code").innerText({ timeout: 25000 });
   await guest.goto("./?room=" + code);
+  await guest.getByRole("button", { name: "Not now" }).click();
   await guest.getByLabel("Your initials").fill("BY");
   await guest.getByRole("button", { name: "Join room" }).click();
   await expect(guest.locator(".transport")).toHaveText("Connected to opponent", { timeout: 30000 });
@@ -32,6 +33,7 @@ test("both seats survive a fresh launch, an invite reopening and an offline retu
     await returningGuest.goto("./#from=games-dashboard&room=" + code);
     await expect(returningGuest.locator(".edge.owned")).toHaveCount(1);
     await expect(returningGuest.locator(".score b").last()).toHaveText("BY");
+    await returningGuest.getByRole("button", { name: "Not now" }).click();
     await returningGuest.locator(".edge:enabled").first().click();
     await expect(host.locator(".edge.owned")).toHaveCount(2);
 
@@ -43,6 +45,7 @@ test("both seats survive a fresh launch, an invite reopening and an offline retu
     await expect(returningHost.locator(".edge.owned")).toHaveCount(2);
     await expect(returningHost.locator(".edge:enabled")).toHaveCount(0);
     await expect(returningHost.locator(".turn")).toHaveText("Waiting to reconnect…");
+    await returningHost.getByRole("button", { name: "Not now" }).click();
     await expect(returningHost.getByRole("dialog")).toBeHidden();
     await context.setOffline(false);
     await expect(returningHost.locator(".transport")).toHaveText("Connected to opponent", { timeout: 35000 });
@@ -53,6 +56,7 @@ test("both seats survive a fresh launch, an invite reopening and an offline retu
     await returningHost.getByRole("dialog").getByRole("button", { name: "Leave room" }).click();
     await expect(returningGuest.locator(".turn")).toHaveText("Opponent left");
     await returningGuest.goto("./?room=" + code);
+    await returningGuest.getByRole("button", { name: "Not now" }).click();
     await expect(returningGuest.getByRole("button", { name: "Join room" })).toBeVisible();
     await returningHost.reload();
     await expect(returningHost.locator(".edge")).toHaveCount(0);
@@ -79,6 +83,7 @@ test("freeze and resume preserve the host and a hidden guest can hand off its se
     const reopened = await friend.newPage();
     const otherCode = code === "ABC234" ? "ABC235" : "ABC234";
     await reopened.goto("./?room=" + otherCode);
+    await reopened.getByRole("button", { name: "Not now" }).click();
     await expect(reopened.getByLabel("Room code")).toHaveValue(otherCode);
     await reopened.getByLabel("Room code").fill(code);
     await reopened.getByRole("button", { name: "Join room" }).click();

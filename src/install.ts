@@ -40,7 +40,6 @@ export function setupInstall(
   dialog: HTMLDialogElement,
   gameURL: string,
   focusAfterInstall: () => void,
-  canOffer: () => boolean,
 ) {
   const embedded = isEmbeddedLaunch();
   const nav = navigator as InstallNavigator;
@@ -54,6 +53,7 @@ export function setupInstall(
     busy = false,
     revision = 0;
   let shownThisVisit = false;
+  let destinationReady = false;
   let ready = false;
   let visit = 0;
   const hasInstallApi = () => !installApiFailed && typeof nav.install === "function";
@@ -66,7 +66,7 @@ export function setupInstall(
     if (installed && (showing || document.activeElement === button)) focusAfterInstall();
     button.hidden = installed;
     if (showing && !installed) updateActions();
-    if (ready && !installed && !shownThisVisit && !dialog.open && canOffer()) open();
+    if (ready && destinationReady && !installed && !shownThisVisit && !dialog.open) open();
   };
   const checkRelated = async () => {
     const check = ++revision;
@@ -196,6 +196,10 @@ export function setupInstall(
   }
   startVisit();
   window.addEventListener("pageshow", event => { if (event.persisted) startVisit(); });
+  return () => {
+    destinationReady = true;
+    if (ready) reflect();
+  };
 }
 
 function installSteps(embedded: boolean, url: string) {

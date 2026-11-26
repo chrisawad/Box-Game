@@ -3,9 +3,10 @@ import { createRequire } from "node:module";
 import type jsQR from "jsqr";
 const qrDecoder = createRequire(import.meta.url).resolve("jsqr");
 
-test("an invite opens the dark join screen with the room filled in and a quiet install option", async ({ page }) => {
+test("an invite opens the dark join screen with the room filled in after dismissing the install dialog", async ({ page }) => {
   await page.emulateMedia({ colorScheme: "light" });
   await page.goto("./?room=abc234");
+  await page.getByRole("button", { name: "Not now" }).click();
   const join = page.getByRole("radio", { name: "Join a friend" });
   const code = page.getByRole("textbox", { name: "Room code" });
   await expect(join).toBeChecked();
@@ -35,6 +36,7 @@ test("an invite opens the dark join screen with the room filled in and a quiet i
   await expect(teal).toBeChecked();
   await expect(page.getByLabel("Your initials")).toHaveValue("AX");
   await page.reload();
+  await page.getByRole("button", { name: "Not now" }).click();
   await expect(teal).toBeChecked();
   await expect(page.locator("header #install")).toBeVisible();
   await expect(page.getByRole("dialog")).toBeHidden();
@@ -54,6 +56,7 @@ test("a fragment invite opens Join in an already open game", async ({ page }) =>
   await page.goto("./");
   await page.getByRole("button", { name: "Not now" }).click();
   await page.evaluate(() => { location.hash = "room=abc234"; });
+  await page.getByRole("button", { name: "Not now" }).click();
   await expect(page.getByRole("radio", { name: "Join a friend" })).toBeChecked();
   await expect(page.getByLabel("Room code")).toHaveValue("ABC234");
   await expect(page.getByRole("dialog")).toBeHidden();
@@ -78,6 +81,7 @@ test("an installed waiting room keeps its invite and has one host window", async
 });
 test("an offline guest gets recovery advice at the Join button", async ({ page, context }) => {
   await page.goto("./?room=ABC234");
+  await page.getByRole("button", { name: "Not now" }).click();
   const join = page.getByRole("button", { name: "Join room" });
   const code = page.getByLabel("Room code");
   await code.fill("A0I");
@@ -96,6 +100,7 @@ test("an offline guest gets recovery advice at the Join button", async ({ page, 
 test("a missing room and an unreachable service give different next steps", async ({ page }, info) => {
   test.skip(!process.env.PEER_CI || info.project.name !== "desktop", "Requires isolated signaling.");
   await page.goto("./?room=ZZZ999");
+  await page.getByRole("button", { name: "Not now" }).click();
   await page.getByRole("button", { name: "Join room" }).click();
   const feedback = page.locator("#room-feedback");
   await expect(feedback).toContainText("Room not found. Check the code", { timeout: 20000 });
@@ -181,6 +186,9 @@ test("QR and link pair two peers, enforce seats, reconnect, finish and rematch",
         route.fulfill({ status: 301, headers: { location: baseURL! } }));
     }
     await y.goto(decoded!);
+    await expect(y.getByRole("dialog", { name: "Install Boxes" })).toBeVisible();
+    await expect(y.locator("#code")).toHaveValue(code);
+    await y.getByRole("button", { name: "Not now" }).click();
     await expect(y.getByRole("radio", { name: "Join a friend" })).toBeChecked();
     await expect(y.getByRole("dialog")).toBeHidden();
     await expect(y.getByLabel("Room code")).toHaveValue(code);
@@ -206,6 +214,7 @@ test("QR and link pair two peers, enforce seats, reconnect, finish and rematch",
     await x.locator(".edge:enabled").first().click();
     await expect(y.locator(".edge.owned")).toHaveCount(1);
     await y.reload();
+    await y.getByRole("button", { name: "Not now" }).click();
     await expect(y.locator(".edge:enabled")).toHaveCount(11, {
       timeout: 30000,
     });
@@ -213,6 +222,7 @@ test("QR and link pair two peers, enforce seats, reconnect, finish and rematch",
     await y.locator(".edge:enabled").first().click();
     await expect(x.locator(".edge.owned")).toHaveCount(2);
     await x.reload();
+    await x.getByRole("button", { name: "Not now" }).click();
     await expect(x.locator(".edge:enabled")).toHaveCount(10, {
       timeout: 45000,
     });

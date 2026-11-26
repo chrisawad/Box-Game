@@ -38,6 +38,7 @@ test("two browsers exchange moves over the selected direct or backup route", asy
     await page.getByRole("button", { name: "Create private room" }).click();
     const code = await page.locator(".room-code").innerText({ timeout: 25000 });
     await guest.goto("./?room=" + code);
+    await guest.getByRole("button", { name: "Not now" }).click();
     await guest.getByRole("button", { name: "Join room" }).click();
     if (live) await expect(guest.locator("#room-feedback")).toContainText("Retrying through the backup relay", { timeout: 32000 });
     for (const device of [page, guest])

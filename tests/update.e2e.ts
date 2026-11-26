@@ -18,12 +18,14 @@ async function openWithPendingUpdate(page: Page) {
   await expect(download).toBeVisible();
   // Honor any install prompt already on screen before showing an update.
   const install = page.getByRole("dialog", { name: "Install Boxes" });
-  if (await install.isVisible()) await install.getByRole("button", { name: "Not now" }).click();
+  const installFirst = await install.isVisible();
+  if (installFirst) await install.getByRole("button", { name: "Not now" }).click();
   await expect(update.getByRole("button", { name: "Cancel" })).toBeFocused();
   await expect(update).toContainText("Updating will exit any active game");
   await update.getByRole("button", { name: "Cancel" }).click();
   await expect(update).toBeHidden();
   await expect(download).toBeInViewport();
+  if (!installFirst) await install.getByRole("button", { name: "Not now" }).click();
   return { download, update };
 }
 
@@ -33,6 +35,7 @@ test("cancel preserves the board and confirming a header update exits to setup",
   await page.getByRole("button", { name: "Start game" }).click();
   await page.locator(".edge:enabled").first().click();
   await page.reload();
+  await page.getByRole("button", { name: "Not now" }).click();
   await expect(download).toBeVisible();
   await expect(update).toBeHidden();
   await download.click();
@@ -69,6 +72,7 @@ test("cancel keeps both players connected and updating tells the opponent you le
   const guest = await browser.newPage({ baseURL });
   try {
     await guest.goto("./?room=" + code);
+    await guest.getByRole("button", { name: "Not now" }).click();
     await guest.getByRole("button", { name: "Join room" }).click();
     await expect(page.locator(".transport")).toHaveText("Connected to opponent", { timeout: 25000 });
     await download.click();
@@ -92,6 +96,7 @@ test("cancel keeps both players connected and updating tells the opponent you le
 test("the top bar shows the share icon and label and shares the public game link", async ({ page }) => {
   const publicURL = "https://boxes.chrisawad.com/";
   await page.goto("./?room=ABC234");
+  await page.getByRole("button", { name: "Not now" }).click();
   await page.evaluate(() => Object.defineProperty(navigator, "share", {
     configurable: true,
     value: async (data: ShareData) => {

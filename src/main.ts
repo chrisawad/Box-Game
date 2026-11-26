@@ -193,12 +193,11 @@ function offerUpdate() {
   if (!updateButton.hidden && !updateShown) showUpdate();
 }
 dialog.addEventListener("close", offerUpdate);
-setupInstall(
+const installDestinationReady = setupInstall(
   $<HTMLButtonElement>("#install"),
   dialog,
   publicGameURL,
   () => $<HTMLButtonElement>(".share-button").focus(),
-  () => updateButton.hidden && !inviteVisit && !peerSave && !working && !room && !match && screen === "setup",
 );
 function updateReady() {
   updateButton.hidden = false;
@@ -706,7 +705,7 @@ async function online(
         return;
       }
       if (
-        dialog.open &&
+        dialog.open && dialog.classList.contains("result-dialog") &&
         previous?.room.status === "finished" &&
         r.status === "active"
       )
@@ -995,5 +994,6 @@ if (
 } else {
   if (peerSave) prefs.mode = "online";
   setup();
-  if (peerSave) void online("restore", resumeCode ?? "");
 }
+if (peerSave) void online("restore", resumeCode ?? "").then(installDestinationReady);
+else installDestinationReady();

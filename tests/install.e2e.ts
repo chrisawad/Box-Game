@@ -44,10 +44,39 @@ test("dismiss for this visit, reopen from the icon, and offer again on navigatio
   await tab.goto(new URL("./", baseURL).href);
   await expect(installDialog(tab)).toBeVisible();
   await tab.close();
+  await page.getByRole("button", { name: "Local", exact: true }).click();
   await page.getByRole("button", { name: "Start game" }).click();
+  await page.locator(".edge:enabled").first().click();
   await page.reload();
+  await expect(dialog).toBeVisible();
+  await expect(page.locator(".edge.owned")).toHaveCount(1);
+  await dismiss();
   await expect(page.locator(".edge:enabled").first()).toBeVisible();
   await expect(dialog).toBeHidden();
+});
+
+test("an open game dialog defers the invite's install offer until it closes", async ({ page }) => {
+  await withoutNativeInstall(page);
+  await page.addInitScript(() => {
+    Object.defineProperty(navigator, "getInstalledRelatedApps", {
+      value: () => new Promise(resolve =>
+        window.addEventListener("finish-install-check", () => resolve([]), { once: true })),
+    });
+    document.addEventListener("DOMContentLoaded", () =>
+      document.querySelector<HTMLButtonElement>(".help-button")?.click(), { once: true });
+  });
+  await page.goto("./#room=ABC234");
+  const help = page.getByRole("dialog", { name: "How to play" });
+  await expect(help).toBeVisible();
+  await page.evaluate(() => window.dispatchEvent(new Event("finish-install-check")));
+  await expect(installDialog(page)).toBeHidden();
+  await help.getByRole("button", { name: "Got it" }).click();
+  await installDialog(page).getByRole("button", { name: "Not now" }).click();
+  await expect(page.getByLabel("Room code")).toHaveValue("ABC234");
+  await page.getByRole("radio", { name: "Host a game" }).check();
+  await page.getByRole("radio", { name: "Join a friend" }).check();
+  await expect(installDialog(page)).toBeHidden();
+  await expect(page.getByLabel("Room code")).toHaveValue("ABC234");
 });
 
 test("a native prompt can be canceled and retried using the same dialog", async ({ page }) => {
@@ -135,10 +164,11 @@ for (const [platform, userAgent, normal, embedded, next] of [
         await page.goto("about:blank");
       }
       await page.goto("./#from=games-dashboard&room=ABC234");
-      await expect(page.getByLabel("Room code")).toHaveValue("ABC234");
-      await expect(installDialog(page)).toBeHidden();
-      await installIcon(page).click();
       await expect(installDialog(page)).toBeVisible();
+      await expect(page.locator("#code")).toHaveValue("ABC234");
+      await installDialog(page).getByRole("button", { name: "Not now" }).click();
+      await expect(page.getByRole("radio", { name: "Join a friend" })).toBeChecked();
+      await expect(page.getByLabel("Room code")).toHaveValue("ABC234");
     });
   });
 }
