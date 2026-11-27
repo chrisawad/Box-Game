@@ -20,11 +20,11 @@ async function forceFirstDirectFailure(page: Page) {
   });
 }
 
-for (const scenario of ["direct", "private relay", "public queue relay", "restored seat relay"]) {
+for (const scenario of ["direct", "private relay", "public queue relay", "restored seat relay", "canceled verification"]) {
   const relay = scenario !== "direct";
   test("two browsers exchange moves using " + scenario, async ({ page, playwright, baseURL }, info) => {
     test.skip(info.project.name !== "desktop" || (!live && !process.env.PEER_CI), "Requires a room service.");
-    test.skip(live && (scenario === "public queue relay" || scenario === "restored seat relay"), "Use isolated queues and seats.");
+    test.skip(live && (scenario === "public queue relay" || scenario === "restored seat relay" || scenario === "canceled verification"), "Use isolated queues and seats.");
     test.setTimeout(100_000);
     const browser = await playwright.chromium.launch();
     try {
@@ -35,6 +35,17 @@ for (const scenario of ["direct", "private relay", "public queue relay", "restor
       if (relay && scenario !== "restored seat relay") await forceFirstDirectFailure(guest);
       if (!live) for (const [device, seat] of [[page, "host"], [guest, "guest"]] as const) {
         await device.addInitScript(useLocalIce);
+        await device.route("https://challenges.cloudflare.com/turnstile/v0/api.js*", route => route.fulfill({
+          contentType: "text/javascript", body: `window.turnstile = {
+            ready(run) { run(); },
+            render(element, options) {
+              if (options.sitekey !== 'fixture-sitekey' || options.action !== 'game_relay') throw Error('Unexpected widget');
+              if (${scenario !== "canceled verification"}) queueMicrotask(() => options.callback(options.cData));
+              return 'widget';
+            },
+            remove() {}
+          }`,
+        }));
         await device.route(/\/test-turn-credentials(?:\/|$)/, async route => {
           const path = new URL(route.request().url()).pathname.split("/").pop()!;
           requests.push(path);
@@ -43,17 +54,18 @@ for (const scenario of ["direct", "private relay", "public queue relay", "restor
           if (path === "matches" && seat === "host" && body.game === "box-game-v1" && body.hostPeer !== body.guestPeer) {
             const match = randomUUID();
             matches.set(match, { commitment: body.guestCommitment, joined: false, redeemed: new Set() });
-            return ok({ match, session: match + "-host" });
+            return ok({ match, session: match + "-host", sitekey: "fixture-sitekey" });
           }
           const match = matches.get(body.match);
           if (match) {
             if (path === "join" && seat === "guest" && createHash("sha256").update(body.secret).digest("hex") === match.commitment) {
               match.joined = true;
-              return ok({ session: body.match + "-guest" });
+              return ok({ session: body.match + "-guest", sitekey: "fixture-sitekey" });
             }
             if (body.session === body.match + "-" + seat) {
               if (path === "ticket") return match.joined ? ok({ ticket: body.session + "-ticket" }) : route.fulfill({ status: 409 });
-              if (path === "credentials" && match.joined && body.ticket === body.session + "-ticket" && !match.redeemed.has(seat)) {
+              if (path === "credentials" && match.joined && body.ticket === body.session + "-ticket" &&
+                  body.turnstileToken === createHash("sha256").update(body.match + ":" + body.session).digest("hex") && !match.redeemed.has(seat)) {
                 match.redeemed.add(seat);
                 minted.push(seat);
                 return ok({ iceServers: [{ urls: "turn:localhost:3478", username: seat, credential: "test-only" }] });
@@ -78,6 +90,15 @@ for (const scenario of ["direct", "private relay", "public queue relay", "restor
         await guest.getByRole("radio", { name: "Public match" }).check();
       }
       await guest.getByRole("button", { name: isPublic ? "Find public game" : "Join room" }).click();
+      if (scenario === "canceled verification") {
+        const verification = guest.getByRole("dialog", { name: "Verify to connect" });
+        await expect(verification).toBeVisible({ timeout: 35000 });
+        await verification.getByRole("button", { name: "Cancel" }).click();
+        await expect(verification).toHaveCount(0);
+        await expect(guest.locator("#room-feedback")).toContainText("backup relay");
+        expect(requests).not.toContain("credentials");
+        return;
+      }
       if (scenario === "restored seat relay") {
         await expect(guest.locator(".transport")).toHaveText("Connected to opponent", { timeout: 30000 });
         expect(requests).toHaveLength(0);
