@@ -83,7 +83,7 @@ for (const scenario of ["direct", "private relay", "public queue relay", "restor
       await page.getByRole("button", { name: isPublic ? "Find public game" : "Create private room" }).click();
       const code = await page.locator(".room-code").innerText({ timeout: 25000 });
       expect(requests).toHaveLength(0);
-      await guest.goto(isPublic ? "./" : "./?room=" + code);
+      await guest.goto(isPublic ? "./" : "./#room=" + code);
       await guest.getByRole("button", { name: "Not now" }).click();
       if (isPublic) {
         await guest.getByRole("button", { name: "Online", exact: true }).click();
