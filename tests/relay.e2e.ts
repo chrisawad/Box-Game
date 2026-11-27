@@ -37,14 +37,13 @@ for (const scenario of ["direct", "private relay", "public queue relay", "restor
         await device.addInitScript(useLocalIce);
         await device.route("https://challenges.cloudflare.com/turnstile/v0/api.js*", route => route.fulfill({
           contentType: "text/javascript", body: `window.turnstile = {
-            ready(run) { run(); },
             render(element, options) {
               if (options.sitekey !== 'fixture-sitekey' || options.action !== 'game_relay') throw Error('Unexpected widget');
               if (${scenario !== "canceled verification"}) queueMicrotask(() => options.callback(options.cData));
               return 'widget';
             },
             remove() {}
-          }`,
+          }; window[new URL(document.currentScript.src).searchParams.get('onload')]();`,
         }));
         await device.route(/\/test-turn-credentials(?:\/|$)/, async route => {
           const path = new URL(route.request().url()).pathname.split("/").pop()!;
