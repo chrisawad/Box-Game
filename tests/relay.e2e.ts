@@ -1,4 +1,5 @@
-import { createHash } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
+import { useLocalIce } from "./local-ice";
 import { expect, test, type Page } from "@playwright/test";
 
 const live = process.env.LIVE_TURN_TEST === "1";
@@ -19,22 +20,6 @@ async function forceFirstDirectFailure(page: Page) {
   });
 }
 
-// The broker is mocked only in the isolated suite. ICE still connects two browser
-// processes. Record the exact seat config, then use loopback in place of a paid relay.
-async function observeMockRelay(page: Page) {
-  await page.addInitScript(() => {
-    function local(config?: RTCConfiguration) {
-      if (config?.iceTransportPolicy !== "relay") return config;
-      document.documentElement.dataset.relaySeat = config.iceServers?.find(s => s.username)?.username;
-      return { ...config, iceServers: [], iceTransportPolicy: "all" as const };
-    }
-    window.RTCPeerConnection = class extends RTCPeerConnection {
-      constructor(config?: RTCConfiguration) { super(local(config)); }
-      override setConfiguration(config?: RTCConfiguration) { super.setConfiguration(local(config)); }
-    };
-  });
-}
-
 for (const scenario of ["direct", "private relay", "public queue relay", "restored seat relay"]) {
   const relay = scenario !== "direct";
   test("two browsers exchange moves using " + scenario, async ({ page, playwright, baseURL }, info) => {
@@ -44,29 +29,32 @@ for (const scenario of ["direct", "private relay", "public queue relay", "restor
     const browser = await playwright.chromium.launch();
     try {
       const guest = await browser.newPage({ baseURL });
-      let commitment = "", joined = false;
+      const matches = new Map<string, { commitment: string; joined: boolean; redeemed: Set<string> }>();
       const minted: string[] = [];
       const requests: string[] = [];
       if (relay && scenario !== "restored seat relay") await forceFirstDirectFailure(guest);
       if (!live) for (const [device, seat] of [[page, "host"], [guest, "guest"]] as const) {
-        await observeMockRelay(device);
+        await device.addInitScript(useLocalIce);
         await device.route(/\/test-turn-credentials(?:\/|$)/, async route => {
           const path = new URL(route.request().url()).pathname.split("/").pop()!;
           requests.push(path);
           const body = route.request().postDataJSON();
           const ok = (json: object) => route.fulfill({ json });
           if (path === "matches" && seat === "host" && body.game === "box-game-v1" && body.hostPeer !== body.guestPeer) {
-            commitment = body.guestCommitment;
-            return ok({ match: "test-match", session: "host-session" });
+            const match = randomUUID();
+            matches.set(match, { commitment: body.guestCommitment, joined: false, redeemed: new Set() });
+            return ok({ match, session: match + "-host" });
           }
-          if (body.match === "test-match") {
-            if (path === "join" && seat === "guest" && createHash("sha256").update(body.secret).digest("hex") === commitment) {
-              joined = true;
-              return ok({ session: "guest-session" });
+          const match = matches.get(body.match);
+          if (match) {
+            if (path === "join" && seat === "guest" && createHash("sha256").update(body.secret).digest("hex") === match.commitment) {
+              match.joined = true;
+              return ok({ session: body.match + "-guest" });
             }
-            if (body.session === seat + "-session") {
-              if (path === "ticket") return joined ? ok({ ticket: seat + "-ticket" }) : route.fulfill({ status: 409 });
-              if (path === "credentials" && joined && body.ticket === seat + "-ticket" && !minted.includes(seat)) {
+            if (body.session === body.match + "-" + seat) {
+              if (path === "ticket") return match.joined ? ok({ ticket: body.session + "-ticket" }) : route.fulfill({ status: 409 });
+              if (path === "credentials" && match.joined && body.ticket === body.session + "-ticket" && !match.redeemed.has(seat)) {
+                match.redeemed.add(seat);
                 minted.push(seat);
                 return ok({ iceServers: [{ urls: "turn:localhost:3478", username: seat, credential: "test-only" }] });
               }
@@ -97,10 +85,14 @@ for (const scenario of ["direct", "private relay", "public queue relay", "restor
         await guest.reload();
         await guest.getByRole("button", { name: "Not now" }).click();
       }
-      for (const device of [page, guest])
-        await expect(device.locator(".connection-route")).toHaveText(live && relay ? "Via relay" : "Direct", { timeout: 65000 });
+      const expectedRoute = live && relay ? "Via relay" : "Direct";
+      await expect.poll(async () => ({
+        routes: await Promise.all([page, guest].map(async p =>
+          (await p.locator(".connection-route, #room-feedback, .waiting [role=status]").allTextContents()).join(" ").trim())),
+        calls: requests.slice(-8),
+      }), { timeout: 65000 }).toMatchObject({ routes: [expectedRoute, expectedRoute] });
       if (!live && relay) {
-        await expect.poll(() => [...minted].sort(), { timeout: 30000 }).toEqual(["guest", "host"]);
+        await expect.poll(() => [...new Set(minted)].sort(), { timeout: 30000 }).toEqual(["guest", "host"]);
         await expect(page.locator("html")).toHaveAttribute("data-relay-seat", "host");
         await expect(guest.locator("html")).toHaveAttribute("data-relay-seat", "guest");
       } else if (!live) expect(requests).toHaveLength(0);

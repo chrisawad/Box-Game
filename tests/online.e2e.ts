@@ -1,4 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
+import { useLocalIce } from "./local-ice";
 import { createRequire } from "node:module";
 import type jsQR from "jsqr";
 const qrDecoder = createRequire(import.meta.url).resolve("jsqr");
@@ -270,6 +271,7 @@ test("public search pairs two simultaneous requests on the same board size", asy
   const x = await a.newPage(),
     y = await b.newPage();
   try {
+    await Promise.all([x.addInitScript(useLocalIce), y.addInitScript(useLocalIce)]);
     await Promise.all([configure(x, "FOX", "Public match"), configure(y, "OWL", "Public match")]);
     await Promise.all(
       [x, y].map((p) =>
