@@ -276,12 +276,13 @@ test("public search pairs two simultaneous requests on the same board size", asy
         p.getByRole("button", { name: "Find public game" }).click(),
       ),
     );
-    for (const p of [x, y]) {
-      await expect(p.locator(".transport")).toHaveText("Connected to opponent", {
-        timeout: 25000,
-      });
-      await expect(p.locator(".score")).toHaveCount(2);
-    }
+    // Discovery and joining use separate WebRTC connections. Report both players'
+    // actual lobby or error messages while waiting for the second handshake.
+    await expect.poll(async () => Promise.all([x, y].map(async p => {
+      const status = await p.locator(".transport, #room-feedback, .waiting [role=status]").allTextContents();
+      return status.join(" ").trim();
+    })), { timeout: 45000 }).toEqual(["Connected to opponent", "Connected to opponent"]);
+    for (const p of [x, y]) await expect(p.locator(".score")).toHaveCount(2);
     const leader = (await x.locator(".edge:enabled").count()) ? x : y;
     await leader.locator(".edge:enabled").first().click();
     for (const p of [x, y])
